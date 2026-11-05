@@ -23,8 +23,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("sled.tools")
 
-DEFAULT_ENABLED_PACKS: tuple[str, ...] = ()
-
 
 @dataclass(frozen=True)
 class ToolSpec:
@@ -65,7 +63,6 @@ class PackSpec:
     icon: str
     description: str
     module: str
-    default_enabled: bool = False
     tools: list[ToolSpec] = field(default_factory=list)
 
 
@@ -74,55 +71,46 @@ PACK_CATALOG: dict[str, dict[str, Any]] = {
         "title": "Filesystem & Text",
         "icon": "📁",
         "description": "Atomic file and directory primitives",
-        "default_enabled": False,
     },
     "git": {
         "title": "Git Repository",
         "icon": "🌿",
         "description": "Repository status, commit log, diffs, branches, and revisions",
-        "default_enabled": False,
     },
     "system": {
         "title": "Host & Processes",
         "icon": "🖥️",
         "description": "Kernel/OS info, uptime, running processes, disk space, memory, and PATH lookup",
-        "default_enabled": False,
     },
     "docker": {
         "title": "Docker & Podman",
         "icon": "🐳",
         "description": "Container listing, logs, stats, images, volumes, networks, lifecycle, and compose",
-        "default_enabled": False,
     },
     "systemd": {
         "title": "Systemd & Journald",
         "icon": "🔧",
         "description": "System and user service units, status properties, lifecycle actions, and journalctl logs",
-        "default_enabled": False,
     },
     "nixos": {
         "title": "Nix, NixOS & Home Manager",
         "icon": "❄️",
         "description": "System/HM generations, flake metadata & outputs, nixpkgs search, nix eval, and store info",
-        "default_enabled": False,
     },
     "network": {
         "title": "Network & Sockets",
         "icon": "🌐",
         "description": "Network interfaces, routing table, listening TCP/UDP ports, ICMP ping, and Tailscale",
-        "default_enabled": False,
     },
     "icebergs": {
         "title": "Icebergs & Frost Apps",
         "icon": "🏔️",
         "description": "Frost ecosystem apps bridged via native MCP stdio (Basecamp, Snowpack, Lantern, Barograph, Rime, Borealis, Goggles, Searchlight, Skald)",
-        "default_enabled": False,
     },
     "dev": {
         "title": "Development & Languages",
         "icon": "🛠️",
         "description": "Code formatters, linters, static diagnostics, and language tooling from Frost",
-        "default_enabled": False,
     },
 }
 
@@ -199,7 +187,7 @@ def get_enabled_tools(explicit_config: str | None = None) -> list[str]:
     Resolution priority in `sled.toml`:
     1. `[store].enabled_tools` (explicit list of atomic tool names)
     2. `[store].enabled_packs` (expands all tools in those packs)
-    3. All tools in `DEFAULT_ENABLED_PACKS` if unconfigured
+    3. Empty list if unconfigured (zero-trust: tools must be explicitly whitelisted)
     Finally removes any tool listed in `[store].disabled_tools`.
     Tools from active bridges in `[bridges]` are included when their bridge is activated.
     """
@@ -239,12 +227,10 @@ def get_enabled_tools(explicit_config: str | None = None) -> list[str]:
             and s.name not in disabled_set
         ]
 
-    default_packs = set(DEFAULT_ENABLED_PACKS)
     return [
         s.name
         for s in all_specs
-        if (s.pack in default_packs or s.name in active_bridge_tools)
-        and s.name not in disabled_set
+        if s.name in active_bridge_tools and s.name not in disabled_set
     ]
 
 
@@ -403,7 +389,6 @@ def list_pack_specs(
             icon=meta["icon"],
             description=meta["description"],
             module=pack_id,
-            default_enabled=meta.get("default_enabled", True),
             tools=p_tools,
         )
         result.append((spec, en_count, len(p_tools)))
