@@ -14,6 +14,7 @@ def test_git_status_clean(temp_git_repo: Path):
     assert "unstaged" not in res
     assert "untracked" not in res
 
+
 def test_git_status_dirty(temp_git_repo: Path):
     new_file = temp_git_repo / "dirty.txt"
     new_file.write_text("untracked content\n")
@@ -25,11 +26,13 @@ def test_git_status_dirty(temp_git_repo: Path):
     assert "dirty.txt" in res["untracked"]
     assert "staged" not in res
 
+
 def test_git_diff_clean(temp_git_repo: Path):
     res = git_diff(repo_path=str(temp_git_repo))
     assert res["status"] == "ok"
     assert res["diff"] == ""
     assert "stat" not in res
+
 
 def test_git_diff_with_changes(temp_git_repo: Path):
     readme = temp_git_repo / "README.md"
@@ -40,6 +43,7 @@ def test_git_diff_with_changes(temp_git_repo: Path):
     assert "-Initial content" in res["diff"]
     assert "+Modified line" in res["diff"]
 
+
 def test_git_log(temp_git_repo: Path):
     res = git_log(repo_path=str(temp_git_repo), limit=5)
     assert res["status"] == "ok"
@@ -49,11 +53,13 @@ def test_git_log(temp_git_repo: Path):
     assert "commit" in commit
     assert "author" in commit
 
+
 def test_git_branch(temp_git_repo: Path):
     res = git_branch(repo_path=str(temp_git_repo))
     assert res["status"] == "ok"
     assert res["current_branch"] == "main"
     assert any(b["name"] == "main" for b in res["branches"])
+
 
 def test_git_stash_lifecycle(temp_git_repo: Path):
     # Make a modification
@@ -61,7 +67,9 @@ def test_git_stash_lifecycle(temp_git_repo: Path):
     readme.write_text("# Test Repo\nStashed content\n")
 
     # Stash push via unified dispatcher
-    push_res = git_stash(action="push", message="stash test", repo_path=str(temp_git_repo))
+    push_res = git_stash(
+        action="push", message="stash test", repo_path=str(temp_git_repo)
+    )
     assert push_res["status"] == "ok"
 
     # Status should now be clean

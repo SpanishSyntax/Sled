@@ -17,7 +17,7 @@ def test_render_store_interactive_non_tty(monkeypatch):
 
 def test_render_tools_panel():
     from sled.main import render_tools_panel
+
     assert render_tools_panel() == 0
     assert render_tools_panel(include_disabled=True) == 0
     assert render_tools_panel(as_json=True) == 0
-

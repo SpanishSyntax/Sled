@@ -68,7 +68,9 @@ def get_bridge_search_paths() -> list[Path]:
     return paths
 
 
-def discover_bridge_manifests(explicit_config: str | None = None) -> dict[str, dict[str, Any]]:
+def discover_bridge_manifests(
+    explicit_config: str | None = None,
+) -> dict[str, dict[str, Any]]:
     """Scan search paths for `*.toml` bridge descriptors without executing anything."""
     manifests: dict[str, dict[str, Any]] = {}
 
@@ -101,7 +103,9 @@ def discover_bridge_manifests(explicit_config: str | None = None) -> dict[str, d
         from sled.tools import load_sled_config
 
         cfg = load_sled_config(explicit_config)
-        bridges_sec = cfg.get("bridges", {}) if isinstance(cfg.get("bridges"), dict) else {}
+        bridges_sec = (
+            cfg.get("bridges", {}) if isinstance(cfg.get("bridges"), dict) else {}
+        )
         custom = bridges_sec.get("custom", {})
         if isinstance(custom, dict):
             for b_name, b_info in custom.items():
@@ -112,7 +116,11 @@ def discover_bridge_manifests(explicit_config: str | None = None) -> dict[str, d
                         "binary": binary,
                         "cmd": [str(c) for c in b_info["cmd"]],
                         "pack": str(b_info.get("pack", "icebergs")),
-                        "description": str(b_info.get("description", f"Custom inline bridge for {b_name}")),
+                        "description": str(
+                            b_info.get(
+                                "description", f"Custom inline bridge for {b_name}"
+                            )
+                        ),
                         "manifest_path": "sled.toml [bridges.custom]",
                     }
     except Exception:
@@ -121,24 +129,29 @@ def discover_bridge_manifests(explicit_config: str | None = None) -> dict[str, d
     return manifests
 
 
-def _make_bridge_handler(cmd: list[str], tool_name: str, schema: dict[str, Any]) -> Callable[..., dict[str, Any]]:
+def _make_bridge_handler(
+    cmd: list[str], tool_name: str, schema: dict[str, Any]
+) -> Callable[..., dict[str, Any]]:
     """Synthesize a typed callable handler that proxies tool execution over stdio JSON-RPC."""
 
     def handler(**kwargs: Any) -> dict[str, Any]:
         req = (
-            json.dumps({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {"name": tool_name, "arguments": kwargs},
-            })
+            json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": tool_name, "arguments": kwargs},
+                }
+            )
             + "\n"
         )
         code, out, err = run_cmd(cmd, input_text=req, timeout=300.0)
         if code != 0:
             return {
                 "status": "error",
-                "error": err.strip() or f"Process {cmd[0]} failed with exit code {code}",
+                "error": err.strip()
+                or f"Process {cmd[0]} failed with exit code {code}",
             }
 
         try:
@@ -146,7 +159,9 @@ def _make_bridge_handler(cmd: list[str], tool_name: str, schema: dict[str, Any])
             if "result" in resp:
                 content = resp["result"].get("content", [])
                 if content and isinstance(content, list):
-                    text_blocks = [c.get("text", "") for c in content if c.get("type") == "text"]
+                    text_blocks = [
+                        c.get("text", "") for c in content if c.get("type") == "text"
+                    ]
                     if text_blocks:
                         combined = "\n".join(text_blocks)
                         try:
@@ -198,7 +213,12 @@ def query_remote_tools(cmd: list[str]) -> list[dict[str, Any]]:
     req = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n"
     code, out, err = run_cmd(cmd, input_text=req, timeout=15.0)
     if code != 0 or not out.strip():
-        logger.warning("Failed to query tools/list from %s: exit=%d, err=%s", cmd, code, err.strip())
+        logger.warning(
+            "Failed to query tools/list from %s: exit=%d, err=%s",
+            cmd,
+            code,
+            err.strip(),
+        )
         return []
 
     try:
@@ -224,7 +244,9 @@ def get_configured_bridges(explicit_config: str | None = None) -> list[dict[str,
         from sled.tools import load_sled_config
 
         cfg = load_sled_config(explicit_config)
-        bridges_sec = cfg.get("bridges", {}) if isinstance(cfg.get("bridges"), dict) else {}
+        bridges_sec = (
+            cfg.get("bridges", {}) if isinstance(cfg.get("bridges"), dict) else {}
+        )
     except Exception:
         bridges_sec = {}
 
@@ -250,7 +272,9 @@ def list_bridge_statuses(explicit_config: str | None = None) -> list[dict[str, A
         from sled.tools import load_sled_config
 
         cfg = load_sled_config(explicit_config)
-        bridges_sec = cfg.get("bridges", {}) if isinstance(cfg.get("bridges"), dict) else {}
+        bridges_sec = (
+            cfg.get("bridges", {}) if isinstance(cfg.get("bridges"), dict) else {}
+        )
     except Exception:
         bridges_sec = {}
 
@@ -266,18 +290,24 @@ def list_bridge_statuses(explicit_config: str | None = None) -> list[dict[str, A
         is_installed = bin_path is not None
         is_enabled = name in enabled_whitelist and name not in disabled_blacklist
 
-        status = "active" if (is_installed and is_enabled) else ("disabled" if is_installed else "not_installed")
-        records.append({
-            "name": name,
-            "binary": info["binary"],
-            "command": " ".join(info["cmd"]),
-            "status": status,
-            "installed": is_installed,
-            "enabled": is_enabled,
-            "pack": info.get("pack", "icebergs"),
-            "description": info.get("description", ""),
-            "manifest_path": info.get("manifest_path", ""),
-        })
+        status = (
+            "active"
+            if (is_installed and is_enabled)
+            else ("disabled" if is_installed else "not_installed")
+        )
+        records.append(
+            {
+                "name": name,
+                "binary": info["binary"],
+                "command": " ".join(info["cmd"]),
+                "status": status,
+                "installed": is_installed,
+                "enabled": is_enabled,
+                "pack": info.get("pack", "icebergs"),
+                "description": info.get("description", ""),
+                "manifest_path": info.get("manifest_path", ""),
+            }
+        )
 
     return records
 
@@ -309,7 +339,9 @@ def toggle_bridge(
             ),
         )
 
-    bridges_sec = dict(cfg.get("bridges", {})) if isinstance(cfg.get("bridges"), dict) else {}
+    bridges_sec = (
+        dict(cfg.get("bridges", {})) if isinstance(cfg.get("bridges"), dict) else {}
+    )
     enabled_set = set(bridges_sec.get("enabled", []))
     disabled_set = set(bridges_sec.get("disabled", []))
 

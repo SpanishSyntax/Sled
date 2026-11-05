@@ -29,6 +29,7 @@ def test_catalog_and_discovery():
     assert "git_status" in tool_map
     assert "ps" in tool_map
 
+
 def test_mcpserver_registration():
     mcp = MCPServer("TestSled")
     registered = register_all_tools(mcp)

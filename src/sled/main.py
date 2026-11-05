@@ -241,6 +241,7 @@ def _emit_toon(data: Any) -> None:
     else:
         try:
             from prism.toon import encode_toon
+
             print(encode_toon(data))
         except ImportError:
             print(json.dumps(data, indent=2))
@@ -363,7 +364,7 @@ def render_tools_panel(
             file=ui.stream,
         )
 
-        for t in (spec.tools if include_disabled else category_tools):
+        for t in spec.tools if include_disabled else category_tools:
             is_en = t.name in enabled_set
             mark = ui.bold_green("✔") if is_en else ui.dim("·")
             name_str = (
@@ -414,8 +415,14 @@ def render_bridges_panel(
 
     cfg_path = get_config_path(explicit_config)
     print(file=ui.stream)
-    print(f"{ui.bold('🏔️  External MCP Bridges & Subprocess Proxies')} {ui.dim(f'({cfg_path})')}", file=ui.stream)
-    print(f"   {ui.dim('Zero-Trust Policy: External application bridges are deactivated by default upon install.')}", file=ui.stream)
+    print(
+        f"{ui.bold('🏔️  External MCP Bridges & Subprocess Proxies')} {ui.dim(f'({cfg_path})')}",
+        file=ui.stream,
+    )
+    print(
+        f"   {ui.dim('Zero-Trust Policy: External application bridges are deactivated by default upon install.')}",
+        file=ui.stream,
+    )
     print(file=ui.stream)
 
     name_w = 16
@@ -455,11 +462,20 @@ def render_bridges_panel(
 
         cmd_str = f"{b['command']:<{cmd_w}}"
         desc_str = b.get("description", "")
-        print(f"   {mark}   {name_str}  {status_badge}  {ui.dim(cmd_str)}  {desc_str}", file=ui.stream)
+        print(
+            f"   {mark}   {name_str}  {status_badge}  {ui.dim(cmd_str)}  {desc_str}",
+            file=ui.stream,
+        )
 
     print(file=ui.stream)
-    print(f"{ui.badge()} {ui.dim('To activate:   `sled bridge enable <name>` or `sled enable <name>`')}", file=ui.stream)
-    print(f"{ui.badge()} {ui.dim('To deactivate: `sled bridge disable <name>` or `sled disable <name>`')}\n", file=ui.stream)
+    print(
+        f"{ui.badge()} {ui.dim('To activate:   `sled bridge enable <name>` or `sled enable <name>`')}",
+        file=ui.stream,
+    )
+    print(
+        f"{ui.badge()} {ui.dim('To deactivate: `sled bridge disable <name>` or `sled disable <name>`')}\n",
+        file=ui.stream,
+    )
     return 0
 
 
@@ -687,9 +703,13 @@ def print_status_dashboard(explicit_config: str | None = None) -> None:
     category_badges: list[str] = []
     for spec, en_cnt, tot_cnt in pack_specs:
         if en_cnt == tot_cnt and tot_cnt > 0:
-            category_badges.append(f"{ui.bold_green('✔')} {spec.icon}{spec.id}({en_cnt})")
+            category_badges.append(
+                f"{ui.bold_green('✔')} {spec.icon}{spec.id}({en_cnt})"
+            )
         elif en_cnt > 0:
-            category_badges.append(f"{ui.yellow('◐')} {spec.icon}{spec.id}({en_cnt}/{tot_cnt})")
+            category_badges.append(
+                f"{ui.yellow('◐')} {spec.icon}{spec.id}({en_cnt}/{tot_cnt})"
+            )
         else:
             category_badges.append(f"{ui.dim('·')} {ui.dim(f'{spec.icon}{spec.id}')}")
 
@@ -933,7 +953,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     bridge_p = subparsers.add_parser(
-        "bridge", parents=[common], help="Manage external MCP application bridges (Zero-Trust)"
+        "bridge",
+        parents=[common],
+        help="Manage external MCP application bridges (Zero-Trust)",
     )
     bridge_p.add_argument(
         "action",
@@ -1016,7 +1038,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if action == "list" or not b_name:
             return render_bridges_panel(as_json=json_arg, explicit_config=cfg_arg)
         from sled.tools.bridge import toggle_bridge
-        ok, msg = toggle_bridge(b_name, enable=(action == "enable"), explicit_config=cfg_arg)
+
+        ok, msg = toggle_bridge(
+            b_name, enable=(action == "enable"), explicit_config=cfg_arg
+        )
         if ok:
             ui.success(msg)
             return 0

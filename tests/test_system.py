@@ -8,11 +8,13 @@ def test_uname():
     assert "machine" in res
     assert "python_version" in res
 
+
 def test_uptime():
     res = uptime()
     assert res["status"] == "ok"
     assert "uptime_seconds" in res
     assert "load_average" in res
+
 
 def test_ps_compact_tabular():
     res = ps(limit=5)
@@ -25,6 +27,7 @@ def test_ps_compact_tabular():
     if res["rows"]:
         assert len(res["rows"][0]) == 6
 
+
 def test_ps_detailed():
     res = ps(limit=3, compact=False)
     assert res["status"] == "ok"
@@ -36,6 +39,7 @@ def test_ps_detailed():
         assert "pid" in p
         assert "command" in p
 
+
 def test_df_compact_tabular():
     res = df()
     assert res["status"] == "ok"
@@ -45,11 +49,13 @@ def test_df_compact_tabular():
     assert "filesystem" in res["columns"]
     assert "mount" in res["columns"]
 
+
 def test_free_memory():
     res = free()
     assert res["status"] == "ok"
     assert "memory" in res
     assert "MemTotal" in res["memory"]
+
 
 def test_which_known_bins():
     res = which(binaries="git,python3")
