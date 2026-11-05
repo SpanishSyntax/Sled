@@ -329,6 +329,15 @@ def save_enabled_tools(
         for k, v in general_sec.items():
             lines.append(f"{k} = {_format_toml_value(v)}")
 
+    for sec_name, sec_val in existing.items():
+        if sec_name in ("store", "general"):
+            continue
+        if isinstance(sec_val, dict) and sec_val:
+            lines.append("")
+            lines.append(f"[{sec_name}]")
+            for k, v in sec_val.items():
+                lines.append(f"{k} = {_format_toml_value(v)}")
+
     content = "\n".join(lines) + "\n"
 
     cfg_path.parent.mkdir(parents=True, exist_ok=True)

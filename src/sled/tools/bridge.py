@@ -18,13 +18,17 @@ from sled.tools._exec import run_cmd, which_bin
 logger = logging.getLogger("sled.tools.bridge")
 
 # Known external Iceberg applications supporting the standard `mcp` subcommand
-DEFAULT_BRIDGED_COMMANDS: tuple[dict[str, Any], ...] = (
-    {
+# NOTE: Zero-Trust Security Policy: none of these are active by default upon install.
+# Users must explicitly activate them via `sled.toml` ([bridges].enabled) or `sled bridge enable <name>`.
+KNOWN_BRIDGES: dict[str, dict[str, Any]] = {
+    "skald": {
+        "name": "skald",
         "binary": "skald",
         "cmd": ["skald", "mcp"],
         "pack": "icebergs",
+        "description": "Arctic oral companion & multi-chapter M4B audiobook compiler",
     },
-)
+}
 
 TYPE_MAP: dict[str, type] = {
     "string": str,
@@ -126,46 +130,191 @@ def query_remote_tools(cmd: list[str]) -> list[dict[str, Any]]:
     return []
 
 
-def get_configured_bridges() -> list[dict[str, Any]]:
-    """Resolve bridge declarations filtered by user configuration in `sled.toml`."""
+def get_configured_bridges(explicit_config: str | None = None) -> list[dict[str, Any]]:
+    """Resolve active external bridges.
+
+    Zero-Trust Security Default:
+    By default, NO external bridges are active out-of-the-box upon install.
+    Bridges are ONLY activated when explicitly opted into by user action:
+    1. Listed in `[bridges].enabled = [...]` in `sled.toml`
+    2. Activated via CLI: `sled bridge enable <name>` or `sled enable <name>`
+    3. Declared as a custom user bridge in `[bridges.custom.<name>]`
+    """
     try:
         from sled.tools import load_sled_config
 
-        cfg = load_sled_config()
+        cfg = load_sled_config(explicit_config)
         bridges_sec = cfg.get("bridges", {}) if isinstance(cfg.get("bridges"), dict) else {}
     except Exception:
         bridges_sec = {}
 
-    disabled = set(bridges_sec.get("disabled", []))
-    enabled_whitelist = bridges_sec.get("enabled", None)
+    enabled_whitelist = set(bridges_sec.get("enabled", []))
+    disabled_blacklist = set(bridges_sec.get("disabled", []))
 
     active: list[dict[str, Any]] = []
 
-    # 1. Built-in trusted iceberg bridges
-    for b in DEFAULT_BRIDGED_COMMANDS:
-        b_name = str(b.get("binary", ""))
-        if b_name in disabled:
-            continue
-        if enabled_whitelist is not None and b_name not in enabled_whitelist:
-            continue
-        active.append(b)
+    # 1. Known trusted Iceberg bridges - strictly opt-in via enabled_whitelist
+    for name, bridge_info in KNOWN_BRIDGES.items():
+        if name in enabled_whitelist and name not in disabled_blacklist:
+            active.append(bridge_info)
 
     # 2. User-declared custom bridges in `sled.toml` ([bridges.custom.<name>])
     custom = bridges_sec.get("custom", {})
     if isinstance(custom, dict):
         for b_name, b_info in custom.items():
-            if b_name in disabled:
-                continue
-            if enabled_whitelist is not None and b_name not in enabled_whitelist:
+            if b_name in disabled_blacklist:
                 continue
             if isinstance(b_info, dict) and "cmd" in b_info:
                 active.append({
+                    "name": b_name,
                     "binary": b_info.get("binary", b_info["cmd"][0]),
                     "cmd": b_info["cmd"],
                     "pack": b_info.get("pack", "icebergs"),
+                    "description": b_info.get("description", f"Custom user bridge for {b_name}"),
                 })
 
     return active
+
+
+def list_bridge_statuses(explicit_config: str | None = None) -> list[dict[str, Any]]:
+    """Return all known and custom bridge configurations with live runtime status."""
+    try:
+        from sled.tools import load_sled_config
+
+        cfg = load_sled_config(explicit_config)
+        bridges_sec = cfg.get("bridges", {}) if isinstance(cfg.get("bridges"), dict) else {}
+    except Exception:
+        bridges_sec = {}
+
+    enabled_whitelist = set(bridges_sec.get("enabled", []))
+    disabled_blacklist = set(bridges_sec.get("disabled", []))
+
+    records: list[dict[str, Any]] = []
+
+    # Known bridges
+    for name, info in KNOWN_BRIDGES.items():
+        bin_path = which_bin(info["binary"])
+        is_installed = bin_path is not None
+        is_enabled = name in enabled_whitelist and name not in disabled_blacklist
+
+        status = "active" if (is_installed and is_enabled) else ("disabled" if is_installed else "not_installed")
+        records.append({
+            "name": name,
+            "binary": info["binary"],
+            "command": " ".join(info["cmd"]),
+            "status": status,
+            "installed": is_installed,
+            "enabled": is_enabled,
+            "pack": info.get("pack", "icebergs"),
+            "description": info.get("description", ""),
+        })
+
+    # Custom bridges in sled.toml
+    custom = bridges_sec.get("custom", {})
+    if isinstance(custom, dict):
+        for b_name, b_info in custom.items():
+            if not isinstance(b_info, dict) or "cmd" not in b_info:
+                continue
+            binary = b_info.get("binary", b_info["cmd"][0])
+            bin_path = which_bin(binary)
+            is_installed = bin_path is not None
+            is_enabled = b_name not in disabled_blacklist
+            status = "active" if (is_installed and is_enabled) else ("disabled" if is_installed else "not_installed")
+
+            records.append({
+                "name": b_name,
+                "binary": binary,
+                "command": " ".join(b_info["cmd"]),
+                "status": status,
+                "installed": is_installed,
+                "enabled": is_enabled,
+                "pack": b_info.get("pack", "icebergs"),
+                "description": b_info.get("description", "Custom user bridge"),
+            })
+
+    return records
+
+
+def toggle_bridge(
+    name: str, enable: bool = True, explicit_config: str | None = None
+) -> tuple[bool, str]:
+    """Explicitly activate or deactivate an external bridge in `sled.toml`."""
+    try:
+        from sled.tools import get_config_path, load_sled_config
+
+        cfg_path = get_config_path(explicit_config)
+        cfg = load_sled_config(explicit_config)
+    except Exception as e:
+        return False, f"Failed to load config: {e}"
+
+    clean_name = name.strip().lower()
+    bridges_sec = dict(cfg.get("bridges", {})) if isinstance(cfg.get("bridges"), dict) else {}
+    custom_bridges = bridges_sec.get("custom", {})
+
+    if clean_name not in KNOWN_BRIDGES and clean_name not in custom_bridges:
+        available = ", ".join(list(KNOWN_BRIDGES.keys()) + list(custom_bridges.keys()))
+        return False, f"Unknown bridge `{name}`. Available bridges: {available or 'none'}"
+
+    enabled_list = [str(x).strip().lower() for x in bridges_sec.get("enabled", []) if str(x).strip()]
+    disabled_list = [str(x).strip().lower() for x in bridges_sec.get("disabled", []) if str(x).strip()]
+
+    enabled_set = set(enabled_list)
+    disabled_set = set(disabled_list)
+
+    if enable:
+        enabled_set.add(clean_name)
+        disabled_set.discard(clean_name)
+    else:
+        enabled_set.discard(clean_name)
+        disabled_set.add(clean_name)
+
+    bridges_sec["enabled"] = sorted(enabled_set)
+    bridges_sec["disabled"] = sorted(disabled_set)
+    cfg["bridges"] = bridges_sec
+
+    # Save to sled.toml preserving other sections
+    from sled.tools import save_enabled_tools, get_enabled_tools
+
+    current_tools = get_enabled_tools(explicit_config)
+    save_enabled_tools(current_tools, explicit_config=explicit_config)
+
+    # Re-read and rewrite with updated bridges
+    try:
+        from sled.tools import _format_toml_value
+        content = cfg_path.read_text(encoding="utf-8") if cfg_path.is_file() else ""
+        lines: list[str] = []
+        in_bridges = False
+        for line in content.splitlines():
+            if line.strip() == "[bridges]":
+                in_bridges = True
+                continue
+            if in_bridges and line.startswith("["):
+                in_bridges = False
+            if not in_bridges:
+                lines.append(line)
+
+        # Append new [bridges] section
+        lines.append("")
+        lines.append("[bridges]")
+        lines.append("enabled = [")
+        for b in sorted(enabled_set):
+            lines.append(f'  "{b}",')
+        lines.append("]")
+        if disabled_set:
+            lines.append("disabled = [")
+            for b in sorted(disabled_set):
+                lines.append(f'  "{b}",')
+            lines.append("]")
+        for k, v in bridges_sec.items():
+            if k not in ("enabled", "disabled"):
+                lines.append(f"{k} = {_format_toml_value(v)}")
+
+        cfg_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+    except Exception as exc:
+        return False, f"Failed to persist bridge update to {cfg_path}: {exc}"
+
+    verb = "Activated" if enable else "Deactivated"
+    return True, f"{verb} bridge `{clean_name}` in {cfg_path}"
 
 
 def discover_bridged_tools(

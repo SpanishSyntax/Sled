@@ -399,6 +399,68 @@ def render_packs_panel(
     )
 
 
+def render_bridges_panel(
+    as_json: bool = False, explicit_config: str | None = None
+) -> int:
+    """Render external MCP application bridges and their status (Zero-Trust by default)."""
+    from sled.tools.bridge import list_bridge_statuses
+
+    statuses = list_bridge_statuses(explicit_config)
+    if as_json:
+        print(json.dumps(statuses, indent=2))
+        return 0
+
+    cfg_path = get_config_path(explicit_config)
+    print("", file=ui.stream)
+    print(f"{ui.bold('🏔️  External MCP Bridges & Subprocess Proxies')} {ui.dim(f'({cfg_path})')}", file=ui.stream)
+    print(f"   {ui.dim('Zero-Trust Policy: External application bridges are deactivated by default upon install.')}", file=ui.stream)
+    print("", file=ui.stream)
+
+    name_w = 16
+    stat_w = 16
+    cmd_w = 20
+
+    hdr_b = f"{'BRIDGE':<{name_w}}"
+    hdr_s = f"{'STATUS':<{stat_w}}"
+    hdr_c = f"{'COMMAND':<{cmd_w}}"
+
+    print(
+        f"       {ui.dim(hdr_b)}  {ui.dim(hdr_s)}  {ui.dim(hdr_c)}  {ui.dim('DESCRIPTION')}",
+        file=ui.stream,
+    )
+    print(
+        f"       {ui.dim('─' * (name_w - 2))}  {ui.dim('─' * (stat_w - 2))}  {ui.dim('─' * (cmd_w - 2))}  {ui.dim('─' * 30)}",
+        file=ui.stream,
+    )
+
+    for b in statuses:
+        st = b["status"]
+        if st == "active":
+            mark = ui.bold_green("✔")
+            raw_badge = f"{'ACTIVE':<{stat_w}}"
+            status_badge = ui.bold_green(raw_badge)
+            name_str = ui.bold_cyan(f"{b['name']:<{name_w}}")
+        elif st == "disabled":
+            mark = ui.dim("·")
+            raw_badge = f"{'DISABLED':<{stat_w}}"
+            status_badge = ui.dim(raw_badge)
+            name_str = ui.dim(f"{b['name']:<{name_w}}")
+        else:
+            mark = ui.bold_red("✗")
+            raw_badge = f"{'NOT IN PATH':<{stat_w}}"
+            status_badge = ui.bold_red(raw_badge)
+            name_str = ui.dim(f"{b['name']:<{name_w}}")
+
+        cmd_str = f"{b['command']:<{cmd_w}}"
+        desc_str = b.get("description", "")
+        print(f"   {mark}   {name_str}  {status_badge}  {ui.dim(cmd_str)}  {desc_str}", file=ui.stream)
+
+    print("", file=ui.stream)
+    print(f"{ui.badge()} {ui.dim('To activate:   `sled bridge enable <name>` or `sled enable <name>`')}", file=ui.stream)
+    print(f"{ui.badge()} {ui.dim('To deactivate: `sled bridge disable <name>` or `sled disable <name>`')}\n", file=ui.stream)
+    return 0
+
+
 def render_search_panel(
     query: str,
     as_json: bool = False,
@@ -471,19 +533,40 @@ def render_search_panel(
 def handle_enable_disable(
     targets: Sequence[str], enable: bool, explicit_config: str | None = None
 ) -> int:
-    """Enable or disable one or more packs OR individual atomic tools via CLI."""
+    """Enable or disable one or more packs, bridges, OR individual atomic tools via CLI."""
     if not targets:
         ui.error(
-            "Specify at least one pack name (e.g. `fs`, `docker`) or atomic tool name (e.g. `ls`, `cat`, `docker_ps`)."
+            "Specify at least one pack name, bridge (e.g. `skald`), or atomic tool name."
         )
         return 1
+
+    from sled.tools.bridge import KNOWN_BRIDGES, toggle_bridge
+
+    bridge_messages: list[str] = []
+    regular_targets: list[str] = []
+
+    for raw_t in targets:
+        t = raw_t.strip().lower()
+        if t in KNOWN_BRIDGES:
+            ok, msg = toggle_bridge(t, enable=enable, explicit_config=explicit_config)
+            if ok:
+                bridge_messages.append(msg)
+            else:
+                ui.error(msg)
+        else:
+            regular_targets.append(raw_t)
+
+    if bridge_messages and not regular_targets:
+        for m in bridge_messages:
+            ui.success(m)
+        return 0
 
     tool_map = get_all_tool_map()
     all_specs = list_tool_specs(only_enabled=False, explicit_config=explicit_config)
     unknown: list[str] = []
     affected_tools: list[str] = []
 
-    for raw_t in targets:
+    for raw_t in regular_targets:
         t = raw_t.strip().lower()
         if t in ("all", "*"):
             affected_tools.extend(s.name for s in all_specs)
@@ -496,7 +579,7 @@ def handle_enable_disable(
 
     if unknown:
         ui.error(
-            f"Unknown pack or tool: {', '.join(unknown)}. Run `sled packs`, `sled tools --all`, or `sled search <query>`."
+            f"Unknown pack, bridge, or tool: {', '.join(unknown)}. Run `sled packs`, `sled bridges`, `sled tools --all`, or `sled search <query>`."
         )
         return 1
 
@@ -509,8 +592,10 @@ def handle_enable_disable(
     saved_path = save_enabled_tools(list(current_set), explicit_config=explicit_config)
     final_tools = get_enabled_tools(explicit_config)
     verb = "Enabled" if enable else "Disabled"
+    for m in bridge_messages:
+        ui.success(m)
     ui.success(
-        f"{verb} {', '.join(targets)} ({len(affected_tools)} tool(s)) -> {len(final_tools)}/{len(all_specs)} active tools ({saved_path})"
+        f"{verb} {', '.join(regular_targets)} ({len(affected_tools)} tool(s)) -> {len(final_tools)}/{len(all_specs)} active tools ({saved_path})"
     )
     return 0
 
@@ -845,6 +930,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         "hub-json", parents=[common], help="Print MCP Hub JSON config snippet"
     )
 
+    bridge_p = subparsers.add_parser(
+        "bridge", parents=[common], help="Manage external MCP application bridges (Zero-Trust)"
+    )
+    bridge_p.add_argument(
+        "action",
+        nargs="?",
+        choices=["list", "enable", "disable"],
+        default="list",
+        help="Action: list (default), enable, disable",
+    )
+    bridge_p.add_argument("bridge_name", nargs="?", help="Bridge name (e.g. skald)")
+
     args = parser.parse_args(raw_args)
     cfg_arg = getattr(args, "config", None)
     tools_flag = getattr(args, "tools", False)
@@ -911,6 +1008,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     if cmd == "run":
         return handle_run_tool(args.tool_name, args.kv_args)
+    if cmd in ("bridge", "bridges"):
+        action = getattr(args, "action", "list") or "list"
+        b_name = getattr(args, "bridge_name", None)
+        if action == "list" or not b_name:
+            return render_bridges_panel(as_json=json_arg, explicit_config=cfg_arg)
+        from sled.tools.bridge import toggle_bridge
+        ok, msg = toggle_bridge(b_name, enable=(action == "enable"), explicit_config=cfg_arg)
+        if ok:
+            ui.success(msg)
+            return 0
+        ui.error(msg)
+        return 1
     if cmd == "hub-json":
         return render_hub_json()
 

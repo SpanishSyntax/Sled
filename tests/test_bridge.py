@@ -1,9 +1,15 @@
 import inspect
+import tempfile
+from pathlib import Path
 from typing import Any
 from sled.tools.bridge import (
+    KNOWN_BRIDGES,
     _make_bridge_handler,
     discover_bridged_tools,
+    get_configured_bridges,
+    list_bridge_statuses,
     query_remote_tools,
+    toggle_bridge,
 )
 from sled.tools._exec import which_bin
 
@@ -43,11 +49,49 @@ def test_query_remote_tools_missing_binary():
     assert res == []
 
 
-def test_skald_bridge_live():
+def test_zero_trust_default_is_empty():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_cfg = Path(tmpdir) / "sled.toml"
+        fake_cfg.write_text("[store]\nenabled_packs = ['fs']\n", encoding="utf-8")
+
+        # Zero-Trust by default: no bridges active unless explicitly enabled
+        configured = get_configured_bridges(str(fake_cfg))
+        assert configured == []
+
+        discovered = discover_bridged_tools(bridges=configured)
+        assert discovered == []
+
+
+def test_toggle_bridge_activation():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fake_cfg = Path(tmpdir) / "sled.toml"
+        fake_cfg.write_text("[store]\nenabled_packs = ['fs']\n", encoding="utf-8")
+
+        # Enable skald bridge
+        ok, msg = toggle_bridge("skald", enable=True, explicit_config=str(fake_cfg))
+        assert ok is True
+        assert "Activated bridge `skald`" in msg
+
+        # Verify it is now in configured bridges
+        bridges = get_configured_bridges(str(fake_cfg))
+        assert len(bridges) == 1
+        assert bridges[0]["name"] == "skald"
+
+        # Disable skald bridge
+        ok, msg = toggle_bridge("skald", enable=False, explicit_config=str(fake_cfg))
+        assert ok is True
+        assert "Deactivated bridge `skald`" in msg
+
+        bridges = get_configured_bridges(str(fake_cfg))
+        assert len(bridges) == 0
+
+
+def test_skald_bridge_explicit_live():
     if not which_bin("skald"):
         return
 
-    tools = discover_bridged_tools()
+    # Pass skald explicitly
+    tools = discover_bridged_tools(bridges=[KNOWN_BRIDGES["skald"]])
     tool_names = [t.name for t in tools]
 
     assert "skald_narrate" in tool_names
