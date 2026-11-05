@@ -126,12 +126,55 @@ def query_remote_tools(cmd: list[str]) -> list[dict[str, Any]]:
     return []
 
 
+def get_configured_bridges() -> list[dict[str, Any]]:
+    """Resolve bridge declarations filtered by user configuration in `sled.toml`."""
+    try:
+        from sled.tools import load_sled_config
+
+        cfg = load_sled_config()
+        bridges_sec = cfg.get("bridges", {}) if isinstance(cfg.get("bridges"), dict) else {}
+    except Exception:
+        bridges_sec = {}
+
+    disabled = set(bridges_sec.get("disabled", []))
+    enabled_whitelist = bridges_sec.get("enabled", None)
+
+    active: list[dict[str, Any]] = []
+
+    # 1. Built-in trusted iceberg bridges
+    for b in DEFAULT_BRIDGED_COMMANDS:
+        b_name = str(b.get("binary", ""))
+        if b_name in disabled:
+            continue
+        if enabled_whitelist is not None and b_name not in enabled_whitelist:
+            continue
+        active.append(b)
+
+    # 2. User-declared custom bridges in `sled.toml` ([bridges.custom.<name>])
+    custom = bridges_sec.get("custom", {})
+    if isinstance(custom, dict):
+        for b_name, b_info in custom.items():
+            if b_name in disabled:
+                continue
+            if enabled_whitelist is not None and b_name not in enabled_whitelist:
+                continue
+            if isinstance(b_info, dict) and "cmd" in b_info:
+                active.append({
+                    "binary": b_info.get("binary", b_info["cmd"][0]),
+                    "cmd": b_info["cmd"],
+                    "pack": b_info.get("pack", "icebergs"),
+                })
+
+    return active
+
+
 def discover_bridged_tools(
-    bridges: tuple[dict[str, Any], ...] = DEFAULT_BRIDGED_COMMANDS,
+    bridges: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> list[ToolSpec]:
     """Inspect and bridge tools from all active external MCP CLI applications."""
+    resolved_bridges = get_configured_bridges() if bridges is None else bridges
     specs: list[ToolSpec] = []
-    for bridge in bridges:
+    for bridge in resolved_bridges:
         binary = bridge.get("binary")
         cmd = bridge.get("cmd", [])
         pack = bridge.get("pack", "icebergs")
