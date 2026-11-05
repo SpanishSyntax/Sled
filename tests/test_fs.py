@@ -1,5 +1,7 @@
 from pathlib import Path
-from sled.tools.fs import ls, cat, head, tail, find, grep, tree, stat
+
+from sled.tools.fs import cat, find, grep, head, ls, stat, tail, tree
+
 
 def test_ls_compact_default(temp_workspace: Path):
     res = ls(str(temp_workspace))

@@ -1,6 +1,5 @@
-from sled.ui import ui, UI
-from sled.tools import list_tool_specs, get_enabled_tools
 from sled.main import render_store_interactive
+from sled.ui import ui
 
 
 def test_ui_is_pure_prism():

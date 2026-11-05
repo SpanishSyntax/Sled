@@ -34,7 +34,7 @@ from sled.tools import (
 )
 from sled.tools.git import git_status
 from sled.tools.system import uname, uptime
-from sled.ui import add_color_args, handle_color_args, ui
+from sled.ui import handle_color_args, ui
 
 
 def configure_stderr_logging(level_name: str = "INFO") -> None:
@@ -324,7 +324,7 @@ def render_tools_panel(
         f"{ui.bold('Active State:')}   {ui.bold_green(str(active_count))}/{total_count} tools enabled ({ui.bold_cyan(f'{pct}%')}) across {len(pack_specs)} categories",
     ]
     ui.panel("SLED MCP TOOLS", summary_lines, width=max_w)
-    print("", file=ui.stream)
+    print(file=ui.stream)
 
     tool_w = 20
     desc_w = max(30, max_w - (tool_w + 10))
@@ -352,12 +352,14 @@ def render_tools_panel(
         sep_tool = "─" * (tool_w - 2)
         sep_desc = "─" * min(desc_w, 48)
 
+        hdr_tool = f"{'TOOL':<{tool_w}}"
+        hdr_sep = f"{sep_tool:<{tool_w}}"
         print(
-            f"       {ui.dim(f'{'TOOL':<{tool_w}}')}  {ui.dim('DESCRIPTION')}",
+            f"       {ui.dim(hdr_tool)}  {ui.dim('DESCRIPTION')}",
             file=ui.stream,
         )
         print(
-            f"       {ui.dim(f'{sep_tool:<{tool_w}}')}  {ui.dim(sep_desc)}",
+            f"       {ui.dim(hdr_sep)}  {ui.dim(sep_desc)}",
             file=ui.stream,
         )
 
@@ -381,7 +383,7 @@ def render_tools_panel(
                 f"   {mark}   {name_str}  {desc_styled}",
                 file=ui.stream,
             )
-        print("", file=ui.stream)
+        print(file=ui.stream)
 
     print(
         f"{ui.badge()} {ui.dim('Tip: Run `sled store` to interactively toggle tools with live search, or `sled search <query>`.')}\n",
@@ -411,10 +413,10 @@ def render_bridges_panel(
         return 0
 
     cfg_path = get_config_path(explicit_config)
-    print("", file=ui.stream)
+    print(file=ui.stream)
     print(f"{ui.bold('🏔️  External MCP Bridges & Subprocess Proxies')} {ui.dim(f'({cfg_path})')}", file=ui.stream)
     print(f"   {ui.dim('Zero-Trust Policy: External application bridges are deactivated by default upon install.')}", file=ui.stream)
-    print("", file=ui.stream)
+    print(file=ui.stream)
 
     name_w = 16
     stat_w = 16
@@ -455,7 +457,7 @@ def render_bridges_panel(
         desc_str = b.get("description", "")
         print(f"   {mark}   {name_str}  {status_badge}  {ui.dim(cmd_str)}  {desc_str}", file=ui.stream)
 
-    print("", file=ui.stream)
+    print(file=ui.stream)
     print(f"{ui.badge()} {ui.dim('To activate:   `sled bridge enable <name>` or `sled enable <name>`')}", file=ui.stream)
     print(f"{ui.badge()} {ui.dim('To deactivate: `sled bridge disable <name>` or `sled disable <name>`')}\n", file=ui.stream)
     return 0

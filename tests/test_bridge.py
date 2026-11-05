@@ -1,17 +1,16 @@
 import inspect
 import tempfile
 from pathlib import Path
-from typing import Any
+
+from sled.tools._exec import which_bin
 from sled.tools.bridge import (
     _make_bridge_handler,
     discover_bridge_manifests,
     discover_bridged_tools,
     get_configured_bridges,
-    list_bridge_statuses,
     query_remote_tools,
     toggle_bridge,
 )
-from sled.tools._exec import which_bin
 
 
 def test_make_bridge_handler_signature():

@@ -18,8 +18,9 @@ import json
 import logging
 import os
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from sled.tools import ToolSpec
 from sled.tools._exec import run_cmd, which_bin
@@ -301,9 +302,11 @@ def toggle_bridge(
         available = ", ".join(sorted(manifests.keys())) or "none found"
         return (
             False,
-            f"Bridge `{name}` not discovered. Available descriptors: [{available}].\n"
-            f"Drop a `{clean_name}.toml` into ~/.config/sled/bridges/ to make it discoverable.\n"
-            f"Active search paths: {', '.join(search_dirs) or 'none created yet'}",
+            (
+                f"Bridge `{name}` not discovered. Available descriptors: [{available}].\n"
+                f"Drop a `{clean_name}.toml` into ~/.config/sled/bridges/ to make it discoverable.\n"
+                f"Active search paths: {', '.join(search_dirs) or 'none created yet'}"
+            ),
         )
 
     bridges_sec = dict(cfg.get("bridges", {})) if isinstance(cfg.get("bridges"), dict) else {}
@@ -322,7 +325,7 @@ def toggle_bridge(
     cfg["bridges"] = bridges_sec
 
     # Save to sled.toml preserving other sections
-    from sled.tools import save_enabled_tools, get_enabled_tools
+    from sled.tools import get_enabled_tools, save_enabled_tools
 
     current_tools = get_enabled_tools(explicit_config)
     save_enabled_tools(current_tools, explicit_config=explicit_config)

@@ -2,10 +2,8 @@ from sled.tools import (
     PACK_CATALOG,
     _discover_all_tool_specs,
     get_all_tool_map,
-    get_enabled_packs,
-    get_enabled_tools,
-    list_tool_specs,
 )
+
 try:
     from mcp.server import MCPServer
 except ImportError:
@@ -14,6 +12,7 @@ except ImportError:
     except ImportError:
         from mcp.server.mcpserver import MCPServer
 from sled.tools import register_all_tools
+
 
 def test_catalog_and_discovery():
     assert "fs" in PACK_CATALOG
