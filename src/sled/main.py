@@ -68,83 +68,70 @@ def load_user_config(explicit_path: str | None = None) -> dict[str, Any]:
 
 
 def print_help() -> None:
-    """Print usage instructions matching Basecamp, Rime, Snowpack, Borealis, and Goggles."""
-    if ui.is_agent:
-        print(f"""Sled v{__version__} - NixOS Atomic MCP Store & Server Bridge
-Usage: sled [command] [options]
-
-Commands:
-  serve [options]        Start MCP JSON-RPC 2.0 server over stdio
-  status [--json]        Display live host, category summaries & tool telemetry
-  tools [--all] [--json] List atomic MCP tools grouped by capability domain
-  search <query>         Search built-in atomic tools locally
-  store                  Interactive multiselect store
-  run <tool> [k=v...]    Execute any built-in atomic tool directly
-  enable <targets...>    Enable atomic tools or packs
-  disable <targets...>   Disable atomic tools or packs
-  hub-json               Print MCP Hub configuration snippet
-
-Options:
-  -A, --agent            Compact machine/agent friendly output mode
-  --json                 Structured JSON output mode
-  --toon                 Token-Oriented Object Notation (TOON) output mode
-  -p, --pack PACK        Filter tools by category pack ID
-  -c, --config PATH      Path to sled.toml configuration file
-  --color MODE           Color output mode: auto, always, never
-  --no-color             Disable colored output
-  -v, --verbose          Verbose debug logging
-  -V, --version          Show version number
-  -h, --help             Show this help message
-""")
-        return
-
-    print(
-        f"""{ui.badge()} {ui.bold("NixOS Atomic MCP Store & Server Bridge")}
-
-{ui.blue("Usage:")}
-  sled                               Open interactive status dashboard & store menu
-  sled store                         Interactive store (powered by Prism with live '/' search filter)
-  sled tools [--all]                 List all atomic MCP tools grouped by capability domain
-  sled search <query>                Search built-in atomic tools locally
-  sled serve [options]               Start the MCP server over standard I/O (stdio)
-  sled <command> [options]
-
-{ui.blue("Store & Search Commands:")}
-  store                Interactive multiselect store (powered by Prism with live '/' search filter)
-  tools                List atomic MCP tools grouped by capability domain
-  search <query>       Search Sled's built-in atomic tools by name, category, args, or description
-  enable <target...>   Enable atomic tools or categories (e.g. `ls`, `cat`, `docker`)
-  disable <target...>  Disable atomic tools or categories (e.g. `docker_action`)
-
-{ui.blue("Server & Execution Commands:")}
-  serve                Start MCP JSON-RPC 2.0 server over stdio (stdout=RPC, stderr=logs)
-  status               Display live host, category summaries, and active atomic tool dashboard
-  run <tool> [k=v...]  Execute any built-in atomic tool directly from the CLI
-  hub-json             Print MCP Hub JSON config snippet for Antigravity, OpenCode & Claude
-
-{ui.blue("Options:")}
-  -p, --pack PACK            Filter `sled tools` by a specific category ID
-  -i, --interactive          Open interactive store selector
-  -s, --search QUERY         Pre-filter `sled store` with an initial search query
-  --all                      Include disabled tools when running `sled tools`
-  -c, --config PATH          Path to sled.toml configuration file
-  --json                     Emit raw JSON output for CLI commands
-  --log-level LEVEL          Stderr log verbosity: DEBUG, INFO, WARNING, ERROR (default: INFO)
-  -v, --verbose              Shortcut for `--log-level DEBUG`
-  --color MODE               Color output mode: auto, always, never (default: auto)
-  --no-color                 Disable colored output
-  -h, --help                 Show this help message and exit
-  -V, --version              Show version and exit
-
-{ui.blue("Examples:")}
-  sled store                 # Open interactive tool store with live '/' search
-  sled tools                 # View all enabled atomic MCP tools grouped by category
-  sled tools --all           # View all 100+ atomic tools including disabled ones
-  sled search log            # Search tools matching "log" (git_log, docker_logs, journalctl)
-  sled enable ls cat grep    # Enable specific atomic tools via CLI
-  sled run ls path=.         # Run the `ls` atomic tool directly in terminal
-""",
-        file=ui.stream,
+    """Print usage instructions using Prism's declarative HelpBuilder."""
+    ui.print_help(
+        tagline="NixOS Atomic MCP Store & Server Bridge",
+        version=__version__,
+        usage=[
+            "sled                               Open interactive status dashboard & store menu",
+            "sled store                         Interactive store (powered by Prism with live '/' search filter)",
+            "sled tools [--all]                 List all atomic MCP tools grouped by capability domain",
+            "sled search <query>                Search built-in atomic tools locally",
+            "sled serve [options]               Start the MCP server over standard I/O (stdio)",
+            "sled <command> [options]",
+        ],
+        commands=[
+            (
+                "serve [options]",
+                "Start MCP JSON-RPC 2.0 server over stdio (stdout=RPC, stderr=logs)",
+            ),
+            (
+                "status [--json]",
+                "Display live host, category summaries & tool telemetry",
+            ),
+            (
+                "tools [--all] [--json]",
+                "List atomic MCP tools grouped by capability domain",
+            ),
+            (
+                "search <query>",
+                "Search Sled's built-in atomic tools by name, category, or description",
+            ),
+            (
+                "store",
+                "Interactive multiselect store (powered by Prism with live '/' search filter)",
+            ),
+            (
+                "run <tool> [k=v...]",
+                "Execute any built-in atomic tool directly from the CLI",
+            ),
+            ("enable <targets...>", "Enable atomic tools or packs"),
+            ("disable <targets...>", "Disable atomic tools or packs"),
+            ("hub-json", "Print MCP Hub JSON config snippet for Antigravity & Claude"),
+        ],
+        options=[
+            ("-A, --agent", "Compact machine/agent friendly output mode"),
+            ("--json", "Structured JSON output mode"),
+            ("--toon", "Token-Oriented Object Notation (TOON) output mode"),
+            ("-p, --pack PACK", "Filter tools by category pack ID"),
+            ("-c, --config PATH", "Path to sled.toml configuration file"),
+            ("--color MODE", "Color output mode: auto, always, never"),
+            ("--no-color", "Disable colored output"),
+            ("-v, --verbose", "Verbose debug logging"),
+            ("-V, --version", "Show version number"),
+            ("-h, --help", "Show this help message and exit"),
+        ],
+        examples=[
+            ("sled store", "Open interactive tool store with live '/' search"),
+            ("sled tools", "View all enabled atomic MCP tools grouped by category"),
+            ("sled tools --all", "View all 100+ atomic tools including disabled ones"),
+            (
+                "sled search log",
+                'Search tools matching "log" (git_log, docker_logs, journalctl)',
+            ),
+            ("sled enable ls cat grep", "Enable specific atomic tools via CLI"),
+            ("sled run ls path=.", "Run the `ls` atomic tool directly in terminal"),
+        ],
     )
 
 
@@ -428,47 +415,36 @@ def render_bridges_panel(
     )
     print(file=ui.stream)
 
-    name_w = 16
-    stat_w = 16
-    cmd_w = 20
-
-    hdr_b = f"{'BRIDGE':<{name_w}}"
-    hdr_s = f"{'STATUS':<{stat_w}}"
-    hdr_c = f"{'COMMAND':<{cmd_w}}"
-
-    print(
-        f"       {ui.dim(hdr_b)}  {ui.dim(hdr_s)}  {ui.dim(hdr_c)}  {ui.dim('DESCRIPTION')}",
-        file=ui.stream,
-    )
-    print(
-        f"       {ui.dim('─' * (name_w - 2))}  {ui.dim('─' * (stat_w - 2))}  {ui.dim('─' * (cmd_w - 2))}  {ui.dim('─' * 30)}",
-        file=ui.stream,
-    )
-
+    rows: list[list[str]] = []
     for b in statuses:
         st = b["status"]
         if st == "active":
             mark = ui.bold_green("✔")
-            raw_badge = f"{'ACTIVE':<{stat_w}}"
-            status_badge = ui.bold_green(raw_badge)
-            name_str = ui.bold_cyan(f"{b['name']:<{name_w}}")
+            status_badge = ui.bold_green("ACTIVE")
+            name_str = ui.bold_cyan(b["name"])
         elif st == "disabled":
             mark = ui.dim("·")
-            raw_badge = f"{'DISABLED':<{stat_w}}"
-            status_badge = ui.dim(raw_badge)
-            name_str = ui.dim(f"{b['name']:<{name_w}}")
+            status_badge = ui.dim("DISABLED")
+            name_str = ui.dim(b["name"])
         else:
             mark = ui.bold_red("✗")
-            raw_badge = f"{'NOT IN PATH':<{stat_w}}"
-            status_badge = ui.bold_red(raw_badge)
-            name_str = ui.dim(f"{b['name']:<{name_w}}")
+            status_badge = ui.bold_red("NOT IN PATH")
+            name_str = ui.dim(b["name"])
 
-        cmd_str = f"{b['command']:<{cmd_w}}"
-        desc_str = b.get("description", "")
-        print(
-            f"   {mark}   {name_str}  {status_badge}  {ui.dim(cmd_str)}  {desc_str}",
-            file=ui.stream,
+        rows.append(
+            [
+                f"{mark} {name_str}",
+                status_badge,
+                ui.dim(b["command"]),
+                b.get("description", ""),
+            ]
         )
+
+    ui.table(
+        headers=["BRIDGE", "STATUS", "COMMAND", "DESCRIPTION"],
+        rows=rows,
+        style="clean",
+    )
 
     print(file=ui.stream)
     print(
