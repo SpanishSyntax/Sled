@@ -18,6 +18,9 @@ import json
 import logging
 import os
 import tomllib
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -83,12 +86,30 @@ def discover_bridge_manifests(
                 with f.open("rb") as fp:
                     data = tomllib.load(fp)
                 name = str(data.get("name") or f.stem).strip().lower()
+                provider = str(data.get("provider", "stdio")).strip().lower()
+
+                if provider in ("sse", "http"):
+                    url = str(data.get("url") or data.get("endpoint", "")).strip()
+                    if not url:
+                        continue
+                    manifests[name] = {
+                        "name": name,
+                        "provider": "sse",
+                        "url": url,
+                        "headers": data.get("headers", {}),
+                        "pack": str(data.get("pack", name)),
+                        "description": str(data.get("description", "")),
+                        "manifest_path": str(f),
+                    }
+                    continue
+
                 cmd = data.get("command") or data.get("cmd")
                 if not cmd or not isinstance(cmd, (list, tuple)):
                     continue
                 binary = str(data.get("binary") or cmd[0])
                 manifests[name] = {
                     "name": name,
+                    "provider": "stdio",
                     "binary": binary,
                     "cmd": [str(c) for c in cmd],
                     "pack": str(data.get("pack", name)),
@@ -109,13 +130,37 @@ def discover_bridge_manifests(
         custom = bridges_sec.get("custom", {})
         if isinstance(custom, dict):
             for b_name, b_info in custom.items():
-                if isinstance(b_info, dict) and "cmd" in b_info:
+                if not isinstance(b_info, dict):
+                    continue
+                provider = str(b_info.get("provider", "stdio")).strip().lower()
+                clean_n = str(b_name).strip().lower()
+
+                if provider in ("sse", "http"):
+                    url = str(b_info.get("url") or b_info.get("endpoint", "")).strip()
+                    if url:
+                        manifests[clean_n] = {
+                            "name": clean_n,
+                            "provider": "sse",
+                            "url": url,
+                            "headers": b_info.get("headers", {}),
+                            "pack": str(b_info.get("pack", clean_n)),
+                            "description": str(
+                                b_info.get(
+                                    "description", f"Custom SSE bridge for {b_name}"
+                                )
+                            ),
+                            "manifest_path": "sled.toml [bridges.custom]",
+                        }
+                    continue
+
+                if "cmd" in b_info:
                     binary = b_info.get("binary", b_info["cmd"][0])
-                    manifests[str(b_name).strip().lower()] = {
-                        "name": str(b_name).strip().lower(),
+                    manifests[clean_n] = {
+                        "name": clean_n,
+                        "provider": "stdio",
                         "binary": binary,
                         "cmd": [str(c) for c in b_info["cmd"]],
-                        "pack": str(b_info.get("pack", str(b_name).strip().lower())),
+                        "pack": str(b_info.get("pack", clean_n)),
                         "description": str(
                             b_info.get(
                                 "description", f"Custom inline bridge for {b_name}"
@@ -239,6 +284,193 @@ def query_remote_tools(cmd: list[str]) -> list[dict[str, Any]]:
     return []
 
 
+def query_sse_tools(
+    url: str, headers: dict[str, str] | None = None, timeout: float = 10.0
+) -> tuple[str, list[dict[str, Any]]]:
+    """Query `tools/list` from an MCP SSE / HTTP endpoint.
+
+    Follows the MCP HTTP/SSE specification:
+    1. Connect to the SSE stream or query endpoint directly.
+    2. Extract the post/message endpoint.
+    3. Issues JSON-RPC `tools/list` and returns (post_endpoint, tools).
+    """
+    req_headers = {"Accept": "text/event-stream, application/json"}
+    if headers:
+        req_headers.update(headers)
+
+    post_url = url
+    # Check if direct JSON-RPC endpoint or SSE
+    try:
+        rpc_req = json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        ).encode("utf-8")
+        post_headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        if headers:
+            post_headers.update(headers)
+
+        req = urllib.request.Request(
+            url, data=rpc_req, headers=post_headers, method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8")
+            data = json.loads(body)
+            tools = data.get("result", {}).get("tools", [])
+            if isinstance(tools, list):
+                return url, tools
+    except Exception:
+        # Fallback to SSE handshake
+        pass
+
+    # Attempt SSE handshake GET
+    try:
+        get_req = urllib.request.Request(url, headers=req_headers, method="GET")
+        with urllib.request.urlopen(get_req, timeout=timeout) as resp:
+            # Read first few event lines to extract post endpoint
+            for _ in range(20):
+                line = resp.readline().decode("utf-8", errors="replace")
+                if not line:
+                    break
+                line = line.strip()
+                if line.startswith("event: endpoint"):
+                    # Next line is data: <uri>
+                    data_line = (
+                        resp.readline().decode("utf-8", errors="replace").strip()
+                    )
+                    if data_line.startswith("data:"):
+                        endpoint_uri = data_line[5:].strip()
+                        post_url = urllib.parse.urljoin(url, endpoint_uri)
+                        break
+
+        # Query tools/list via post_url
+        rpc_req = json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+        ).encode("utf-8")
+        post_headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        if headers:
+            post_headers.update(headers)
+
+        req = urllib.request.Request(
+            post_url, data=rpc_req, headers=post_headers, method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8")
+            data = json.loads(body)
+            tools = data.get("result", {}).get("tools", [])
+            if isinstance(tools, list):
+                return post_url, tools
+    except Exception as e:
+        logger.warning("Failed to query SSE tools from %s: %s", url, e)
+
+    return post_url, []
+
+
+def _make_sse_handler(
+    post_url: str,
+    tool_name: str,
+    schema: dict[str, Any],
+    headers: dict[str, str] | None = None,
+) -> Callable[..., dict[str, Any]]:
+    """Synthesize a typed callable handler that proxies tool execution to an HTTP/SSE endpoint."""
+
+    def handler(**kwargs: Any) -> dict[str, Any]:
+        req_body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": tool_name, "arguments": kwargs},
+            }
+        ).encode("utf-8")
+
+        post_headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        if headers:
+            post_headers.update(headers)
+
+        try:
+            req = urllib.request.Request(
+                post_url, data=req_body, headers=post_headers, method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=60.0) as resp:
+                body = resp.read().decode("utf-8")
+                data = json.loads(body)
+
+                if "result" in data:
+                    content = data["result"].get("content", [])
+                    if content and isinstance(content, list):
+                        text_blocks = [
+                            c.get("text", "")
+                            for c in content
+                            if c.get("type") == "text"
+                        ]
+                        if text_blocks:
+                            combined = "\n".join(text_blocks)
+                            try:
+                                parsed = json.loads(combined)
+                                if isinstance(parsed, dict):
+                                    return parsed
+                            except Exception:
+                                return {"status": "ok", "output": combined}
+                    return data["result"]
+
+                if "error" in data:
+                    err_msg = data["error"].get("message", "Unknown error")
+                    return {"status": "error", "error": err_msg}
+
+                return {"status": "ok", "raw": body}
+        except urllib.error.HTTPError as e:
+            err_text = e.read().decode("utf-8", errors="replace")
+            return {
+                "status": "error",
+                "error": f"HTTP {e.code} error from {post_url}: {err_text}",
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": f"Network error communicating with {post_url}: {e}",
+            }
+
+    # Construct dynamic function signature matching tool schema parameters
+    properties: dict[str, Any] = schema.get("properties", {})
+    required: set[str] = set(schema.get("required", []))
+    params: list[inspect.Parameter] = []
+
+    for p_name, p_info in properties.items():
+        raw_type = p_info.get("type", "")
+        if isinstance(raw_type, list):
+            non_nulls = [t for t in raw_type if t != "null"]
+            type_str = non_nulls[0] if non_nulls else "string"
+        else:
+            type_str = str(raw_type)
+
+        annotation = TYPE_MAP.get(type_str, Any)
+        default = p_info.get(
+            "default",
+            inspect.Parameter.empty if p_name in required else None,
+        )
+        params.append(
+            inspect.Parameter(
+                name=p_name,
+                kind=inspect.Parameter.KEYWORD_ONLY,
+                default=default,
+                annotation=annotation,
+            )
+        )
+
+    handler.__signature__ = inspect.Signature(parameters=params)
+    handler.__doc__ = schema.get("description", f"SSE bridged tool from {post_url}")
+    handler.__name__ = tool_name
+    return handler
+
+
 def get_configured_bridges(explicit_config: str | None = None) -> list[dict[str, Any]]:
     """Resolve active external bridges.
 
@@ -294,24 +526,36 @@ def list_bridge_statuses(explicit_config: str | None = None) -> list[dict[str, A
 
     for name in sorted(manifests.keys()):
         info = manifests[name]
-        bin_path = which_bin(info["binary"])
-        is_installed = bin_path is not None
-        is_enabled = name in enabled_whitelist and name not in disabled_blacklist
+        provider = info.get("provider", "stdio")
 
-        status = (
-            "active"
-            if (is_installed and is_enabled)
-            else ("disabled" if is_installed else "not_installed")
-        )
+        if provider == "sse":
+            is_installed = True
+            is_enabled = name in enabled_whitelist and name not in disabled_blacklist
+            status = "active" if is_enabled else "disabled"
+            cmd_display = info.get("url", "SSE endpoint")
+            bin_display = "http/sse"
+        else:
+            bin_path = which_bin(info.get("binary", ""))
+            is_installed = bin_path is not None
+            is_enabled = name in enabled_whitelist and name not in disabled_blacklist
+            status = (
+                "active"
+                if (is_installed and is_enabled)
+                else ("disabled" if is_installed else "not_installed")
+            )
+            cmd_display = " ".join(info.get("cmd", []))
+            bin_display = info.get("binary", "")
+
         records.append(
             {
                 "name": name,
-                "binary": info["binary"],
-                "command": " ".join(info["cmd"]),
+                "provider": provider,
+                "binary": bin_display,
+                "command": cmd_display,
                 "status": status,
                 "installed": is_installed,
                 "enabled": is_enabled,
-                "pack": info.get("pack", "icebergs"),
+                "pack": info.get("pack", name),
                 "description": info.get("description", ""),
                 "manifest_path": info.get("manifest_path", ""),
             }
@@ -412,13 +656,40 @@ def toggle_bridge(
 def discover_bridged_tools(
     bridges: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> list[ToolSpec]:
-    """Inspect and bridge tools from all active external MCP CLI applications."""
+    """Inspect and bridge tools from all active external MCP CLI or SSE applications."""
     resolved_bridges = get_configured_bridges() if bridges is None else bridges
     specs: list[ToolSpec] = []
     for bridge in resolved_bridges:
+        pack = bridge.get("pack", bridge.get("name", "bridge"))
+        provider = bridge.get("provider", "stdio")
+
+        if provider == "sse":
+            url = bridge.get("url")
+            if not url:
+                continue
+            headers = bridge.get("headers", {})
+            post_url, tool_defs = query_sse_tools(url, headers=headers)
+            for t_def in tool_defs:
+                name = t_def.get("name")
+                desc = t_def.get("description", "")
+                schema = t_def.get("inputSchema", {})
+                if not name:
+                    continue
+
+                handler = _make_sse_handler(post_url, name, schema, headers=headers)
+                specs.append(
+                    ToolSpec(
+                        name=name,
+                        module="bridge",
+                        description=desc,
+                        handler=handler,
+                        pack=pack,
+                    )
+                )
+            continue
+
         binary = bridge.get("binary")
         cmd = bridge.get("cmd", [])
-        pack = bridge.get("pack", bridge.get("name", "bridge"))
         if not binary or not cmd:
             continue
 

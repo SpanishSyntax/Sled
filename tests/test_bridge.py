@@ -133,3 +133,98 @@ def test_skald_bridge_explicit_live():
     assert result.get("status") == "ok"
     assert "voices" in result
     assert len(result["voices"]) == 1
+
+
+def test_sse_bridge_mock_server():
+    import http.server
+    import json
+    import threading
+
+    class MockMCPHandler(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            method = body.get("method")
+            if method == "tools/list":
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "tools": [
+                            {
+                                "name": "mock_sse_tool",
+                                "description": "Mock tool from SSE HTTP endpoint",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "param": {
+                                            "type": "string",
+                                            "description": "A param",
+                                        }
+                                    },
+                                    "required": ["param"],
+                                },
+                            }
+                        ]
+                    },
+                }
+            elif method == "tools/call":
+                params = body.get("params", {})
+                args = params.get("arguments", {})
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(
+                                    {
+                                        "status": "ok",
+                                        "echo": args.get("param"),
+                                    }
+                                ),
+                            }
+                        ]
+                    },
+                }
+            else:
+                resp = {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "error": {"message": "unknown"},
+                }
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(resp).encode("utf-8"))
+
+        def log_message(self, format, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), MockMCPHandler)
+    port = server.server_port
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+
+    try:
+        bridge_def = {
+            "name": "remote_service",
+            "provider": "sse",
+            "url": f"http://127.0.0.1:{port}/mcp",
+            "pack": "remote",
+        }
+        tools = discover_bridged_tools(bridges=[bridge_def])
+        assert len(tools) == 1
+        spec = tools[0]
+        assert spec.name == "mock_sse_tool"
+        assert spec.pack == "remote"
+
+        # Execute mock SSE tool
+        res = spec.handler(param="hello_sse")
+        assert res.get("status") == "ok"
+        assert res.get("echo") == "hello_sse"
+    finally:
+        server.shutdown()
+        server.server_close()
