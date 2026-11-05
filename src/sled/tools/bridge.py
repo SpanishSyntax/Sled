@@ -452,26 +452,25 @@ def _make_sse_handler(
 
 
 def get_configured_bridges(explicit_config: str | None = None) -> list[dict[str, Any]]:
-    """Resolve active external bridges.
-
-    Zero-Trust Security Default:
-    By default, NO external bridges are active out-of-the-box upon install.
-    Bridges are ONLY activated when explicitly opted into by user action:
-    1. Listed in `[bridges].enabled = [...]` in `sled.toml`
-    2. Activated via CLI: `sled bridge enable <name>` or `sled enable <name>`
-    """
+    """Resolve active external bridges/packs from `[packs].enabled` or legacy `[bridges].enabled`."""
     try:
         from sled.tools import load_sled_config
 
         cfg = load_sled_config(explicit_config)
+        packs_sec = cfg.get("packs", {}) if isinstance(cfg.get("packs"), dict) else {}
         bridges_sec = (
             cfg.get("bridges", {}) if isinstance(cfg.get("bridges"), dict) else {}
         )
     except Exception:
+        packs_sec = {}
         bridges_sec = {}
 
-    enabled_whitelist = set(bridges_sec.get("enabled", []))
-    disabled_blacklist = set(bridges_sec.get("disabled", []))
+    enabled_whitelist = set(packs_sec.get("enabled", [])) | set(
+        bridges_sec.get("enabled", [])
+    )
+    disabled_blacklist = set(packs_sec.get("disabled", [])) | set(
+        bridges_sec.get("disabled", [])
+    )
 
     if not enabled_whitelist:
         return []
@@ -480,7 +479,11 @@ def get_configured_bridges(explicit_config: str | None = None) -> list[dict[str,
     active: list[dict[str, Any]] = []
 
     for name, bridge_info in manifests.items():
-        if name in enabled_whitelist and name not in disabled_blacklist:
+        pack_name = bridge_info.get("pack", name)
+        # Enabled if either bridge name or pack name is in the enabled packs list
+        if (name in enabled_whitelist or pack_name in enabled_whitelist) and (
+            name not in disabled_blacklist and pack_name not in disabled_blacklist
+        ):
             active.append(bridge_info)
 
     return active
@@ -492,32 +495,40 @@ def list_bridge_statuses(explicit_config: str | None = None) -> list[dict[str, A
         from sled.tools import load_sled_config
 
         cfg = load_sled_config(explicit_config)
+        packs_sec = cfg.get("packs", {}) if isinstance(cfg.get("packs"), dict) else {}
         bridges_sec = (
             cfg.get("bridges", {}) if isinstance(cfg.get("bridges"), dict) else {}
         )
     except Exception:
+        packs_sec = {}
         bridges_sec = {}
 
-    enabled_whitelist = set(bridges_sec.get("enabled", []))
-    disabled_blacklist = set(bridges_sec.get("disabled", []))
+    enabled_whitelist = set(packs_sec.get("enabled", [])) | set(
+        bridges_sec.get("enabled", [])
+    )
+    disabled_blacklist = set(packs_sec.get("disabled", [])) | set(
+        bridges_sec.get("disabled", [])
+    )
 
     manifests = discover_bridge_manifests(explicit_config)
     records: list[dict[str, Any]] = []
 
     for name in sorted(manifests.keys()):
         info = manifests[name]
+        pack_name = info.get("pack", name)
         provider = info.get("provider", "stdio")
+        is_enabled = (name in enabled_whitelist or pack_name in enabled_whitelist) and (
+            name not in disabled_blacklist and pack_name not in disabled_blacklist
+        )
 
         if provider == "sse":
             is_installed = True
-            is_enabled = name in enabled_whitelist and name not in disabled_blacklist
             status = "active" if is_enabled else "disabled"
             cmd_display = info.get("url", "SSE endpoint")
             bin_display = "http/sse"
         else:
             bin_path = which_bin(info.get("binary", ""))
             is_installed = bin_path is not None
-            is_enabled = name in enabled_whitelist and name not in disabled_blacklist
             status = (
                 "active"
                 if (is_installed and is_enabled)
@@ -535,7 +546,7 @@ def list_bridge_statuses(explicit_config: str | None = None) -> list[dict[str, A
                 "status": status,
                 "installed": is_installed,
                 "enabled": is_enabled,
-                "pack": info.get("pack", name),
+                "pack": pack_name,
                 "description": info.get("description", ""),
                 "manifest_path": info.get("manifest_path", ""),
             }
@@ -547,35 +558,37 @@ def list_bridge_statuses(explicit_config: str | None = None) -> list[dict[str, A
 def toggle_bridge(
     name: str, enable: bool = True, explicit_config: str | None = None
 ) -> tuple[bool, str]:
-    """Explicitly activate or deactivate a discovered external bridge in `sled.toml`."""
+    """Explicitly activate or deactivate a discovered pack/bridge in `sled.toml`."""
     try:
-        from sled.tools import get_config_path, load_sled_config
+        from sled.tools import get_all_pack_catalog, get_config_path, load_sled_config
 
         cfg_path = get_config_path(explicit_config)
         cfg = load_sled_config(explicit_config)
+        catalog = get_all_pack_catalog(explicit_config)
     except Exception as e:
         return False, f"Failed to load config: {e}"
 
     clean_name = name.strip().lower()
     manifests = discover_bridge_manifests(explicit_config)
 
-    if clean_name not in manifests:
+    if clean_name not in manifests and clean_name not in catalog:
         search_dirs = [str(p) for p in get_bridge_search_paths() if p.is_dir()]
-        available = ", ".join(sorted(manifests.keys())) or "none found"
+        available = ", ".join(
+            sorted(set(list(manifests.keys()) + list(catalog.keys())))
+        )
         return (
             False,
             (
-                f"Bridge `{name}` not discovered. Available descriptors: [{available}].\n"
-                f"Drop a `{clean_name}.toml` into ~/.config/sled/bridges/ to make it discoverable.\n"
+                f"Pack `{name}` not discovered. Available: [{available}].\n"
+                f"Drop a descriptor into ~/.config/sled/bridges/ to make it discoverable.\n"
                 f"Active search paths: {', '.join(search_dirs) or 'none created yet'}"
             ),
         )
 
-    bridges_sec = (
-        dict(cfg.get("bridges", {})) if isinstance(cfg.get("bridges"), dict) else {}
-    )
-    enabled_set = set(bridges_sec.get("enabled", []))
-    disabled_set = set(bridges_sec.get("disabled", []))
+    # Use unified [packs] table
+    packs_sec = dict(cfg.get("packs", {})) if isinstance(cfg.get("packs"), dict) else {}
+    enabled_set = set(packs_sec.get("enabled", []))
+    disabled_set = set(packs_sec.get("disabled", []))
 
     if enable:
         enabled_set.add(clean_name)
@@ -584,53 +597,59 @@ def toggle_bridge(
         enabled_set.discard(clean_name)
         disabled_set.add(clean_name)
 
-    bridges_sec["enabled"] = sorted(enabled_set)
-    bridges_sec["disabled"] = sorted(disabled_set)
-    cfg["bridges"] = bridges_sec
-
-    # Save to sled.toml preserving other sections
+    # Persist via save_enabled_tools keeping packs updated
     from sled.tools import get_enabled_tools, save_enabled_tools
 
     current_tools = get_enabled_tools(explicit_config)
     save_enabled_tools(current_tools, explicit_config=explicit_config)
 
-    # Persist [bridges] block
+    # Ensure packs.enabled has the newly toggled pack
     try:
+        updated_cfg = load_sled_config(explicit_config)
+        u_packs = dict(updated_cfg.get("packs", {}))
+        u_enabled = set(u_packs.get("enabled", []))
+        if enable:
+            u_enabled.add(clean_name)
+        else:
+            u_enabled.discard(clean_name)
+        u_packs["enabled"] = sorted(u_enabled)
+        updated_cfg["packs"] = u_packs
+
+        # Write clean TOML
         from sled.tools import _format_toml_value
 
-        content = cfg_path.read_text(encoding="utf-8") if cfg_path.is_file() else ""
-        lines: list[str] = []
-        in_bridges = False
-        for line in content.splitlines():
-            if line.strip() == "[bridges]":
-                in_bridges = True
-                continue
-            if in_bridges and line.startswith("["):
-                in_bridges = False
-            if not in_bridges:
-                lines.append(line)
-
-        lines.append("")
-        lines.append("[bridges]")
-        lines.append("enabled = [")
-        for b in sorted(enabled_set):
-            lines.append(f'  "{b}",')
+        lines: list[str] = [
+            "# Sled MCP Unified Pack & Tool Configuration",
+            "# Managed via `sled store`, `sled enable/disable`, or Home Manager",
+            "",
+            "[packs]",
+            "enabled = [",
+        ]
+        for p in sorted(u_enabled):
+            lines.append(f'  "{p}",')
         lines.append("]")
-        if disabled_set:
-            lines.append("disabled = [")
-            for b in sorted(disabled_set):
-                lines.append(f'  "{b}",')
-            lines.append("]")
-        for k, v in bridges_sec.items():
-            if k not in ("enabled", "disabled"):
-                lines.append(f"{k} = {_format_toml_value(v)}")
+        lines.append("")
+        lines.append("[tools]")
+        lines.append("enabled = [")
+        for t in updated_cfg.get("tools", {}).get("enabled", []):
+            lines.append(f'  "{t}",')
+        lines.append("]")
+
+        for sec_name, sec_val in updated_cfg.items():
+            if sec_name in ("packs", "tools"):
+                continue
+            if isinstance(sec_val, dict) and sec_val:
+                lines.append("")
+                lines.append(f"[{sec_name}]")
+                for k, v in sec_val.items():
+                    lines.append(f"{k} = {_format_toml_value(v)}")
 
         cfg_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
     except Exception as exc:
-        return False, f"Failed to persist bridge update to {cfg_path}: {exc}"
+        return False, f"Failed to persist pack update to {cfg_path}: {exc}"
 
     verb = "Activated" if enable else "Deactivated"
-    return True, f"{verb} bridge `{clean_name}` in {cfg_path}"
+    return True, f"{verb} pack `{clean_name}` in {cfg_path}"
 
 
 def discover_bridged_tools(

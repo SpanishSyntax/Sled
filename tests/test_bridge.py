@@ -94,7 +94,7 @@ def test_manifest_discovery_and_toggle(monkeypatch):
         # Activate via toggle_bridge
         ok, msg = toggle_bridge("my_app", enable=True, explicit_config=str(fake_cfg))
         assert ok is True
-        assert "Activated bridge `my_app`" in msg
+        assert "Activated pack `my_app`" in msg
 
         configured_after = get_configured_bridges(str(fake_cfg))
         assert len(configured_after) == 1
@@ -103,7 +103,7 @@ def test_manifest_discovery_and_toggle(monkeypatch):
         # Deactivate
         ok, msg = toggle_bridge("my_app", enable=False, explicit_config=str(fake_cfg))
         assert ok is True
-        assert "Deactivated bridge `my_app`" in msg
+        assert "Deactivated pack `my_app`" in msg
         assert len(get_configured_bridges(str(fake_cfg))) == 0
 
 
