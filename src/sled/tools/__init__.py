@@ -31,7 +31,6 @@ DEFAULT_ENABLED_PACKS: tuple[str, ...] = (
     "systemd",
     "nixos",
     "network",
-    "icebergs",
     "dev",
 )
 
@@ -125,8 +124,8 @@ PACK_CATALOG: dict[str, dict[str, Any]] = {
     "icebergs": {
         "title": "Icebergs & Frost Apps",
         "icon": "🏔️",
-        "description": "Frost ecosystem apps: Basecamp devshells, Snowpack Typst compiler, Rime renamer, Barograph plot runner, Lantern explainer compiler, Searchlight PDF search, Borealis telemetry, Goggles viewer",
-        "default_enabled": True,
+        "description": "Frost ecosystem apps bridged via native MCP stdio (Basecamp, Snowpack, Lantern, Barograph, Rime, Borealis, Goggles, Searchlight, Skald)",
+        "default_enabled": False,
     },
     "dev": {
         "title": "Development & Languages",
@@ -187,6 +186,11 @@ def _discover_all_tool_specs() -> list[ToolSpec]:
     """Return all registered ToolSpec objects across all modules."""
     specs: list[ToolSpec] = []
     for mod in discover_tool_modules():
+        if mod.__name__.endswith(".bridge"):
+            discover_fn = getattr(mod, "discover_bridged_tools", None)
+            if callable(discover_fn):
+                specs.extend(discover_fn())
+                continue
         mod_specs = getattr(mod, "TOOLS", None)
         if isinstance(mod_specs, (list, tuple)):
             specs.extend(mod_specs)
@@ -206,6 +210,7 @@ def get_enabled_tools(explicit_config: str | None = None) -> list[str]:
     2. `[store].enabled_packs` (expands all tools in those packs)
     3. All tools in `DEFAULT_ENABLED_PACKS` if unconfigured
     Finally removes any tool listed in `[store].disabled_tools`.
+    Tools from active bridges in `[bridges]` are included when their bridge is activated.
     """
     all_specs = _discover_all_tool_specs()
     known_names = {s.name for s in all_specs}
@@ -219,11 +224,17 @@ def get_enabled_tools(explicit_config: str | None = None) -> list[str]:
         else set()
     )
 
+    active_bridge_tools = {
+        s.name for s in all_specs if s.module == "bridge" and s.name not in disabled_set
+    }
+
     if isinstance(store_sec.get("enabled_tools"), list):
         raw_tools = [
             str(t).strip().lower() for t in store_sec["enabled_tools"] if str(t).strip()
         ]
-        enabled_set = {t for t in raw_tools if t in known_names} - disabled_set
+        enabled_set = (
+            {t for t in raw_tools if t in known_names} | active_bridge_tools
+        ) - disabled_set
         return [s.name for s in all_specs if s.name in enabled_set]
 
     if isinstance(store_sec.get("enabled_packs"), list):
@@ -233,14 +244,16 @@ def get_enabled_tools(explicit_config: str | None = None) -> list[str]:
         return [
             s.name
             for s in all_specs
-            if s.pack in raw_packs and s.name not in disabled_set
+            if (s.pack in raw_packs or s.name in active_bridge_tools)
+            and s.name not in disabled_set
         ]
 
     default_packs = set(DEFAULT_ENABLED_PACKS)
     return [
         s.name
         for s in all_specs
-        if s.pack in default_packs and s.name not in disabled_set
+        if (s.pack in default_packs or s.name in active_bridge_tools)
+        and s.name not in disabled_set
     ]
 
 
