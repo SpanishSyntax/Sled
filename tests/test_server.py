@@ -30,10 +30,20 @@ def test_catalog_and_discovery():
     assert "ps" in tool_map
 
 
-def test_mcpserver_registration():
+def test_mcpserver_registration(tmp_path):
+    # Zero-trust verification: with an empty config, 0 tools are registered
+    empty_cfg = tmp_path / "empty_sled.toml"
+    empty_cfg.write_text("[store]\nenabled_tools = []\n")
+    mcp_empty = MCPServer("TestSledEmpty")
+    registered_empty = register_all_tools(mcp_empty, explicit_config=str(empty_cfg))
+    assert registered_empty == []
+
+    # With explicit enabled tools, only requested tools are registered
+    active_cfg = tmp_path / "active_sled.toml"
+    active_cfg.write_text('[store]\nenabled_tools = ["ls", "git_status", "ps"]\n')
     mcp = MCPServer("TestSled")
-    registered = register_all_tools(mcp)
-    assert len(registered) > 0
+    registered = register_all_tools(mcp, explicit_config=str(active_cfg))
+    assert len(registered) == 3
     assert "ls" in registered
     assert "git_status" in registered
     assert "ps" in registered

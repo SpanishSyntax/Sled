@@ -23,16 +23,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("sled.tools")
 
-DEFAULT_ENABLED_PACKS: tuple[str, ...] = (
-    "fs",
-    "git",
-    "system",
-    "docker",
-    "systemd",
-    "nixos",
-    "network",
-    "dev",
-)
+DEFAULT_ENABLED_PACKS: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -74,7 +65,7 @@ class PackSpec:
     icon: str
     description: str
     module: str
-    default_enabled: bool = True
+    default_enabled: bool = False
     tools: list[ToolSpec] = field(default_factory=list)
 
 
@@ -83,43 +74,43 @@ PACK_CATALOG: dict[str, dict[str, Any]] = {
         "title": "Filesystem & Text",
         "icon": "📁",
         "description": "Atomic file and directory primitives",
-        "default_enabled": True,
+        "default_enabled": False,
     },
     "git": {
         "title": "Git Repository",
         "icon": "🌿",
         "description": "Repository status, commit log, diffs, branches, and revisions",
-        "default_enabled": True,
+        "default_enabled": False,
     },
     "system": {
         "title": "Host & Processes",
         "icon": "🖥️",
         "description": "Kernel/OS info, uptime, running processes, disk space, memory, and PATH lookup",
-        "default_enabled": True,
+        "default_enabled": False,
     },
     "docker": {
         "title": "Docker & Podman",
         "icon": "🐳",
         "description": "Container listing, logs, stats, images, volumes, networks, lifecycle, and compose",
-        "default_enabled": True,
+        "default_enabled": False,
     },
     "systemd": {
         "title": "Systemd & Journald",
         "icon": "🔧",
         "description": "System and user service units, status properties, lifecycle actions, and journalctl logs",
-        "default_enabled": True,
+        "default_enabled": False,
     },
     "nixos": {
         "title": "Nix, NixOS & Home Manager",
         "icon": "❄️",
         "description": "System/HM generations, flake metadata & outputs, nixpkgs search, nix eval, and store info",
-        "default_enabled": True,
+        "default_enabled": False,
     },
     "network": {
         "title": "Network & Sockets",
         "icon": "🌐",
         "description": "Network interfaces, routing table, listening TCP/UDP ports, ICMP ping, and Tailscale",
-        "default_enabled": True,
+        "default_enabled": False,
     },
     "icebergs": {
         "title": "Icebergs & Frost Apps",
@@ -131,7 +122,7 @@ PACK_CATALOG: dict[str, dict[str, Any]] = {
         "title": "Development & Languages",
         "icon": "🛠️",
         "description": "Code formatters, linters, static diagnostics, and language tooling from Frost",
-        "default_enabled": True,
+        "default_enabled": False,
     },
 }
 
