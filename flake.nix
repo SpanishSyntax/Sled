@@ -57,6 +57,7 @@
         dependencies = [
           pythonPackages.mcp
           pythonPackages.prism
+          pythonPackages.httpx
         ];
 
         nativeBuildInputs = [
@@ -80,7 +81,6 @@
           "sled.tools.systemd"
           "sled.tools.nixos"
           "sled.tools.network"
-          "sled.tools.icebergs"
           "sled.tools.dev"
         ];
 
@@ -98,6 +98,7 @@
       devPythonEnv = python.withPackages (ps: [
         ps.mcp
         ps.prism
+        ps.httpx
         ps.setuptools
         ps.pytest
         ps.ruff

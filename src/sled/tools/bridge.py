@@ -18,12 +18,12 @@ import json
 import logging
 import os
 import tomllib
-import urllib.error
 import urllib.parse
-import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 from sled.tools import ToolSpec
 from sled.tools._exec import run_cmd, which_bin
@@ -287,83 +287,63 @@ def query_remote_tools(cmd: list[str]) -> list[dict[str, Any]]:
 def query_sse_tools(
     url: str, headers: dict[str, str] | None = None, timeout: float = 10.0
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Query `tools/list` from an MCP SSE / HTTP endpoint.
+    """Query `tools/list` from an MCP SSE / HTTP endpoint using httpx.
 
     Follows the MCP HTTP/SSE specification:
-    1. Connect to the SSE stream or query endpoint directly.
-    2. Extract the post/message endpoint.
-    3. Issues JSON-RPC `tools/list` and returns (post_endpoint, tools).
+    1. First attempts direct JSON-RPC HTTP POST (standard / fast path).
+    2. If that fails or requires handshake, performs GET streaming handshake to extract post endpoint.
+    3. Issues JSON-RPC `tools/list` and returns `(post_endpoint, tools)`.
     """
-    req_headers = {"Accept": "text/event-stream, application/json"}
+    req_headers = {"Accept": "application/json, text/event-stream"}
     if headers:
         req_headers.update(headers)
 
     post_url = url
-    # Check if direct JSON-RPC endpoint or SSE
-    try:
-        rpc_req = json.dumps(
-            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
-        ).encode("utf-8")
-        post_headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-        if headers:
-            post_headers.update(headers)
+    rpc_payload = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
 
-        req = urllib.request.Request(
-            url, data=rpc_req, headers=post_headers, method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8")
-            data = json.loads(body)
-            tools = data.get("result", {}).get("tools", [])
-            if isinstance(tools, list):
-                return url, tools
+    # Fast path: attempt direct JSON-RPC POST with httpx
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            resp = client.post(url, json=rpc_payload, headers=req_headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                tools = data.get("result", {}).get("tools", [])
+                if isinstance(tools, list):
+                    return url, tools
     except Exception:
-        # Fallback to SSE handshake
         pass
 
-    # Attempt SSE handshake GET
+    # SSE Handshake path: GET request to read event-stream endpoint declaration
     try:
-        get_req = urllib.request.Request(url, headers=req_headers, method="GET")
-        with urllib.request.urlopen(get_req, timeout=timeout) as resp:
-            # Read first few event lines to extract post endpoint
-            for _ in range(20):
-                line = resp.readline().decode("utf-8", errors="replace")
-                if not line:
-                    break
-                line = line.strip()
-                if line.startswith("event: endpoint"):
-                    # Next line is data: <uri>
-                    data_line = (
-                        resp.readline().decode("utf-8", errors="replace").strip()
-                    )
-                    if data_line.startswith("data:"):
-                        endpoint_uri = data_line[5:].strip()
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            with client.stream(
+                "GET", url, headers={"Accept": "text/event-stream", **(headers or {})}
+            ) as stream:
+                line_count = 0
+                for line in stream.iter_lines():
+                    line_count += 1
+                    if line_count > 30:
+                        break
+                    line = line.strip()
+                    if line.startswith("event: endpoint"):
+                        # Next line is data: <uri>
+                        continue
+                    if line.startswith("data:"):
+                        endpoint_uri = line[5:].strip()
                         post_url = urllib.parse.urljoin(url, endpoint_uri)
                         break
 
-        # Query tools/list via post_url
-        rpc_req = json.dumps(
-            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
-        ).encode("utf-8")
-        post_headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-        if headers:
-            post_headers.update(headers)
-
-        req = urllib.request.Request(
-            post_url, data=rpc_req, headers=post_headers, method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8")
-            data = json.loads(body)
-            tools = data.get("result", {}).get("tools", [])
-            if isinstance(tools, list):
-                return post_url, tools
+            # Now issue tools/list to resolved post_url
+            resp = client.post(
+                post_url,
+                json=rpc_payload,
+                headers={"Content-Type": "application/json", **(headers or {})},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                tools = data.get("result", {}).get("tools", [])
+                if isinstance(tools, list):
+                    return post_url, tools
     except Exception as e:
         logger.warning("Failed to query SSE tools from %s: %s", url, e)
 
@@ -376,18 +356,15 @@ def _make_sse_handler(
     schema: dict[str, Any],
     headers: dict[str, str] | None = None,
 ) -> Callable[..., dict[str, Any]]:
-    """Synthesize a typed callable handler that proxies tool execution to an HTTP/SSE endpoint."""
+    """Synthesize a typed callable handler that proxies tool execution to an HTTP/SSE endpoint via httpx."""
 
     def handler(**kwargs: Any) -> dict[str, Any]:
-        req_body = json.dumps(
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "tools/call",
-                "params": {"name": tool_name, "arguments": kwargs},
-            }
-        ).encode("utf-8")
-
+        rpc_body = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": kwargs},
+        }
         post_headers = {
             "Content-Type": "application/json",
             "Accept": "application/json",
@@ -396,12 +373,16 @@ def _make_sse_handler(
             post_headers.update(headers)
 
         try:
-            req = urllib.request.Request(
-                post_url, data=req_body, headers=post_headers, method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=60.0) as resp:
-                body = resp.read().decode("utf-8")
-                data = json.loads(body)
+            with httpx.Client(timeout=60.0, follow_redirects=True) as client:
+                resp = client.post(post_url, json=rpc_body, headers=post_headers)
+
+                if resp.status_code != 200:
+                    return {
+                        "status": "error",
+                        "error": f"HTTP {resp.status_code} from {post_url}: {resp.text[:500]}",
+                    }
+
+                data = resp.json()
 
                 if "result" in data:
                     content = data["result"].get("content", [])
@@ -425,12 +406,11 @@ def _make_sse_handler(
                     err_msg = data["error"].get("message", "Unknown error")
                     return {"status": "error", "error": err_msg}
 
-                return {"status": "ok", "raw": body}
-        except urllib.error.HTTPError as e:
-            err_text = e.read().decode("utf-8", errors="replace")
+                return {"status": "ok", "raw": resp.text}
+        except httpx.HTTPStatusError as e:
             return {
                 "status": "error",
-                "error": f"HTTP {e.code} error from {post_url}: {err_text}",
+                "error": f"HTTP {e.response.status_code} error from {post_url}: {e.response.text[:500]}",
             }
         except Exception as e:
             return {
