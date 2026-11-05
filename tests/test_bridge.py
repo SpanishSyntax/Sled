@@ -228,3 +228,73 @@ def test_sse_bridge_mock_server():
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_bridge_cache_save_and_load(tmp_path, monkeypatch):
+    from sled.tools.bridge import (
+        get_bridge_cache_path,
+        load_bridge_cache,
+        save_bridge_cache,
+    )
+
+    fake_cache_file = tmp_path / "sled" / "bridges_cache.json"
+    monkeypatch.setattr(
+        "sled.tools.bridge.get_bridge_cache_path", lambda: fake_cache_file
+    )
+
+    assert load_bridge_cache() == {}
+
+    data = {
+        "test_bridge": {
+            "bin_path": "/fake/bin",
+            "bin_mtime": 100.0,
+            "man_mtime": 200.0,
+            "tools": [{"name": "fake_tool", "description": "desc", "inputSchema": {}}],
+        }
+    }
+    save_bridge_cache(data)
+    loaded = load_bridge_cache()
+    assert "test_bridge" in loaded
+    assert loaded["test_bridge"]["bin_path"] == "/fake/bin"
+    assert len(loaded["test_bridge"]["tools"]) == 1
+
+
+def test_get_installed_bridges(monkeypatch):
+    from sled.tools.bridge import get_installed_bridges
+
+    fake_manifests = {
+        "app_installed": {
+            "name": "app_installed",
+            "provider": "stdio",
+            "binary": "app_installed_bin",
+            "cmd": ["app_installed_bin", "mcp"],
+        },
+        "app_missing": {
+            "name": "app_missing",
+            "provider": "stdio",
+            "binary": "app_missing_bin",
+            "cmd": ["app_missing_bin", "mcp"],
+        },
+        "app_sse": {
+            "name": "app_sse",
+            "provider": "sse",
+            "url": "http://localhost:8000/mcp",
+        },
+    }
+
+    monkeypatch.setattr(
+        "sled.tools.bridge.discover_bridge_manifests",
+        lambda explicit_config=None: fake_manifests,
+    )
+    monkeypatch.setattr(
+        "sled.tools.bridge.which_bin",
+        lambda binary: (
+            "/bin/app_installed_bin" if binary == "app_installed_bin" else None
+        ),
+    )
+
+    installed = get_installed_bridges()
+    names = [b["name"] for b in installed]
+    assert "app_installed" in names
+    assert "app_sse" in names
+    assert "app_missing" not in names

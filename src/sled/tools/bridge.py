@@ -98,6 +98,8 @@ def discover_bridge_manifests(
                         "url": url,
                         "headers": data.get("headers", {}),
                         "pack": str(data.get("pack", name)),
+                        "title": str(data.get("title", name.capitalize())),
+                        "icon": str(data.get("icon", "⚡")),
                         "description": str(data.get("description", "")),
                         "manifest_path": str(f),
                     }
@@ -113,6 +115,8 @@ def discover_bridge_manifests(
                     "binary": binary,
                     "cmd": [str(c) for c in cmd],
                     "pack": str(data.get("pack", name)),
+                    "title": str(data.get("title", name.capitalize())),
+                    "icon": str(data.get("icon", "⚡")),
                     "description": str(data.get("description", "")),
                     "manifest_path": str(f),
                 }
@@ -142,6 +146,8 @@ def discover_bridge_manifests(
                             "url": url,
                             "headers": b_info.get("headers", {}),
                             "pack": str(b_info.get("pack", clean_n)),
+                            "title": str(b_info.get("title", clean_n.capitalize())),
+                            "icon": str(b_info.get("icon", "⚡")),
                             "description": str(
                                 b_info.get(
                                     "description", f"Custom SSE pack for {b_name}"
@@ -159,6 +165,8 @@ def discover_bridge_manifests(
                         "binary": binary,
                         "cmd": [str(c) for c in b_info["cmd"]],
                         "pack": str(b_info.get("pack", clean_n)),
+                        "title": str(b_info.get("title", clean_n.capitalize())),
+                        "icon": str(b_info.get("icon", "⚡")),
                         "description": str(
                             b_info.get(
                                 "description", f"Custom inline pack for {b_name}"
@@ -634,11 +642,122 @@ def toggle_bridge(
     return True, f"{verb} pack `{clean_name}` in {cfg_path}"
 
 
+def get_bridge_cache_path() -> Path:
+    """Return path to persistent local bridge tool definition cache."""
+    xdg_cache = os.environ.get("XDG_CACHE_HOME")
+    base_cache = Path(xdg_cache) if xdg_cache else Path.home() / ".cache"
+    return base_cache / "sled" / "bridges_cache.json"
+
+
+def load_bridge_cache() -> dict[str, Any]:
+    """Load cached tool definitions for discovered bridges."""
+    cache_file = get_bridge_cache_path()
+    if not cache_file.is_file():
+        return {}
+    try:
+        with cache_file.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_bridge_cache(cache: dict[str, Any]) -> None:
+    """Persist tool definitions cache to disk."""
+    cache_file = get_bridge_cache_path()
+    try:
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        with cache_file.open("w", encoding="utf-8") as f:
+            json.dump(cache, f, indent=2)
+    except Exception as exc:
+        logger.debug("Failed to write bridge cache to %s: %s", cache_file, exc)
+
+
+def get_installed_bridges(explicit_config: str | None = None) -> list[dict[str, Any]]:
+    """Return all discovered bridges whose binary is installed in PATH (or SSE endpoints)."""
+    manifests = discover_bridge_manifests(explicit_config)
+    installed: list[dict[str, Any]] = []
+    for _name, bridge_info in manifests.items():
+        provider = bridge_info.get("provider", "stdio")
+        if provider == "sse":
+            installed.append(bridge_info)
+        else:
+            binary = bridge_info.get("binary")
+            if binary and which_bin(binary):
+                installed.append(bridge_info)
+    return installed
+
+
+def get_bridge_tool_defs(
+    bridge: dict[str, Any], cache: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    """Query or retrieve cached tool definitions for a single bridge."""
+    name = bridge.get("name", "")
+    provider = bridge.get("provider", "stdio")
+    if provider == "sse":
+        url = bridge.get("url")
+        if not url:
+            return []
+        headers = bridge.get("headers", {})
+        _, tool_defs = query_sse_tools(url, headers=headers)
+        return tool_defs
+
+    binary = bridge.get("binary")
+    cmd = bridge.get("cmd", [])
+    if not binary or not cmd:
+        return []
+
+    bin_path = which_bin(binary)
+    if not bin_path:
+        return []
+
+    bin_mtime = 0.0
+    try:
+        bin_mtime = os.path.getmtime(bin_path)
+    except OSError:
+        pass
+
+    manifest_path = bridge.get("manifest_path", "")
+    man_mtime = 0.0
+    if manifest_path and os.path.isfile(manifest_path):
+        try:
+            man_mtime = os.path.getmtime(manifest_path)
+        except OSError:
+            pass
+
+    if cache is not None:
+        cached_entry = cache.get(name)
+        if (
+            isinstance(cached_entry, dict)
+            and cached_entry.get("bin_mtime") == bin_mtime
+            and cached_entry.get("man_mtime") == man_mtime
+            and isinstance(cached_entry.get("tools"), list)
+        ):
+            return cached_entry["tools"]
+
+    tool_defs = query_remote_tools(cmd)
+    if tool_defs and cache is not None:
+        cache[name] = {
+            "bin_path": bin_path,
+            "bin_mtime": bin_mtime,
+            "man_mtime": man_mtime,
+            "tools": tool_defs,
+        }
+    return tool_defs
+
+
 def discover_bridged_tools(
     bridges: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
 ) -> list[ToolSpec]:
-    """Inspect and bridge tools from all active external MCP CLI or SSE applications."""
-    resolved_bridges = get_configured_bridges() if bridges is None else bridges
+    """Inspect and bridge tools from all installed external MCP CLI or SSE applications."""
+    resolved_bridges = get_installed_bridges() if bridges is None else list(bridges)
+    if not resolved_bridges:
+        return []
+
+    cache = load_bridge_cache()
+    initial_cache_len = len(cache)
+    cache_updated = False
+
     specs: list[ToolSpec] = []
     for bridge in resolved_bridges:
         pack = bridge.get("pack", bridge.get("name", "bridge"))
@@ -656,7 +775,6 @@ def discover_bridged_tools(
                 schema = t_def.get("inputSchema", {})
                 if not name:
                     continue
-
                 handler = _make_sse_handler(post_url, name, schema, headers=headers)
                 specs.append(
                     ToolSpec(
@@ -669,16 +787,16 @@ def discover_bridged_tools(
                 )
             continue
 
-        binary = bridge.get("binary")
         cmd = bridge.get("cmd", [])
-        if not binary or not cmd:
+        if not cmd:
             continue
 
-        if not which_bin(binary):
-            logger.debug("Bridge binary %s not found in PATH; skipping.", binary)
-            continue
+        before_entry = cache.get(bridge.get("name", ""))
+        tool_defs = get_bridge_tool_defs(bridge, cache=cache)
+        after_entry = cache.get(bridge.get("name", ""))
+        if before_entry != after_entry:
+            cache_updated = True
 
-        tool_defs = query_remote_tools(cmd)
         for t_def in tool_defs:
             name = t_def.get("name")
             desc = t_def.get("description", "")
@@ -696,6 +814,9 @@ def discover_bridged_tools(
                     pack=pack,
                 )
             )
+
+    if cache_updated or len(cache) != initial_cache_len:
+        save_bridge_cache(cache)
 
     return specs
 

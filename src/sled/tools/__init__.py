@@ -125,12 +125,13 @@ def get_all_pack_catalog(
         for name, m in manifests.items():
             pack_id = m.get("pack", name)
             if pack_id not in catalog:
-                title = name.capitalize()
+                title = m.get("title") or name.capitalize()
+                icon = m.get("icon") or "⚡"
                 catalog[pack_id] = {
                     "title": title,
-                    "icon": "⚡",
+                    "icon": icon,
                     "description": m.get("description", f"Bridged pack for {title}"),
-                    "provider": "stdio",
+                    "provider": m.get("provider", "stdio"),
                     "binary": m.get("binary", name),
                 }
     except Exception:
