@@ -91,7 +91,7 @@ def discover_bridge_manifests(
                     "name": name,
                     "binary": binary,
                     "cmd": [str(c) for c in cmd],
-                    "pack": str(data.get("pack", "icebergs")),
+                    "pack": str(data.get("pack", name)),
                     "description": str(data.get("description", "")),
                     "manifest_path": str(f),
                 }
@@ -115,7 +115,7 @@ def discover_bridge_manifests(
                         "name": str(b_name).strip().lower(),
                         "binary": binary,
                         "cmd": [str(c) for c in b_info["cmd"]],
-                        "pack": str(b_info.get("pack", "icebergs")),
+                        "pack": str(b_info.get("pack", str(b_name).strip().lower())),
                         "description": str(
                             b_info.get(
                                 "description", f"Custom inline bridge for {b_name}"
@@ -188,7 +188,15 @@ def _make_bridge_handler(
     params: list[inspect.Parameter] = []
 
     for p_name, p_info in properties.items():
-        annotation = TYPE_MAP.get(p_info.get("type", ""), Any)
+        raw_type = p_info.get("type", "")
+        if isinstance(raw_type, list):
+            # Take the first non-null type from union: e.g. ["integer", "null"] -> "integer"
+            non_nulls = [t for t in raw_type if t != "null"]
+            type_str = non_nulls[0] if non_nulls else "string"
+        else:
+            type_str = str(raw_type)
+
+        annotation = TYPE_MAP.get(type_str, Any)
         default = p_info.get(
             "default",
             inspect.Parameter.empty if p_name in required else None,
@@ -410,7 +418,7 @@ def discover_bridged_tools(
     for bridge in resolved_bridges:
         binary = bridge.get("binary")
         cmd = bridge.get("cmd", [])
-        pack = bridge.get("pack", "icebergs")
+        pack = bridge.get("pack", bridge.get("name", "bridge"))
         if not binary or not cmd:
             continue
 

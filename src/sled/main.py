@@ -20,7 +20,6 @@ from typing import Any
 
 from sled import __app_name__, __version__
 from sled.tools import (
-    PACK_CATALOG,
     get_all_tool_map,
     get_config_path,
     get_enabled_packs,
@@ -210,10 +209,14 @@ def render_store_interactive(
     all_tools = list_tool_specs(only_enabled=False, explicit_config=explicit_config)
     enabled_tools = get_enabled_tools(explicit_config)
 
+    from sled.tools import get_all_pack_catalog
+
+    catalog = get_all_pack_catalog(explicit_config)
+
     options = [
         (
             t.name,
-            f"{PACK_CATALOG.get(t.pack, {}).get('icon', '⚡')} {t.name:<22} [{t.pack}]",
+            f"{catalog.get(t.pack, {}).get('icon', '⚡')} {t.name:<22} [{t.pack}]",
             t.description,
         )
         for t in all_tools
@@ -469,11 +472,11 @@ def render_bridges_panel(
 
     print(file=ui.stream)
     print(
-        f"{ui.badge()} {ui.dim('To activate:   `sled bridge enable <name>` or `sled enable <name>`')}",
+        f"{ui.badge()} {ui.dim('To activate:   `sled enable <name>`')}",
         file=ui.stream,
     )
     print(
-        f"{ui.badge()} {ui.dim('To deactivate: `sled bridge disable <name>` or `sled disable <name>`')}\n",
+        f"{ui.badge()} {ui.dim('To deactivate: `sled disable <name>`')}\n",
         file=ui.stream,
     )
     return 0
@@ -551,44 +554,29 @@ def render_search_panel(
 def handle_enable_disable(
     targets: Sequence[str], enable: bool, explicit_config: str | None = None
 ) -> int:
-    """Enable or disable one or more packs, bridges, OR individual atomic tools via CLI."""
+    """Enable or disable one or more packs OR individual atomic tools via CLI."""
     if not targets:
         ui.error(
-            "Specify at least one pack name, bridge (e.g. `skald`), or atomic tool name."
+            "Specify at least one pack name (e.g. `fs`, `skald`) or atomic tool name (e.g. `ls`)."
         )
         return 1
 
-    from sled.tools.bridge import KNOWN_BRIDGES, toggle_bridge
+    from sled.tools import get_all_pack_catalog
 
-    bridge_messages: list[str] = []
-    regular_targets: list[str] = []
-
-    for raw_t in targets:
-        t = raw_t.strip().lower()
-        if t in KNOWN_BRIDGES:
-            ok, msg = toggle_bridge(t, enable=enable, explicit_config=explicit_config)
-            if ok:
-                bridge_messages.append(msg)
-            else:
-                ui.error(msg)
-        else:
-            regular_targets.append(raw_t)
-
-    if bridge_messages and not regular_targets:
-        for m in bridge_messages:
-            ui.success(m)
-        return 0
-
+    catalog = get_all_pack_catalog(explicit_config)
     tool_map = get_all_tool_map()
     all_specs = list_tool_specs(only_enabled=False, explicit_config=explicit_config)
     unknown: list[str] = []
     affected_tools: list[str] = []
+    affected_packs: list[str] = []
 
-    for raw_t in regular_targets:
+    for raw_t in targets:
         t = raw_t.strip().lower()
         if t in ("all", "*"):
             affected_tools.extend(s.name for s in all_specs)
-        elif t in PACK_CATALOG:
+            affected_packs.extend(catalog.keys())
+        elif t in catalog:
+            affected_packs.append(t)
             affected_tools.extend(s.name for s in all_specs if s.pack == t)
         elif t in tool_map:
             affected_tools.append(t)
@@ -597,7 +585,7 @@ def handle_enable_disable(
 
     if unknown:
         ui.error(
-            f"Unknown pack, bridge, or tool: {', '.join(unknown)}. Run `sled packs`, `sled bridges`, `sled tools --all`, or `sled search <query>`."
+            f"Unknown pack or tool: {', '.join(unknown)}. Run `sled packs`, `sled tools --all`, or `sled search <query>`."
         )
         return 1
 
@@ -610,10 +598,8 @@ def handle_enable_disable(
     saved_path = save_enabled_tools(list(current_set), explicit_config=explicit_config)
     final_tools = get_enabled_tools(explicit_config)
     verb = "Enabled" if enable else "Disabled"
-    for m in bridge_messages:
-        ui.success(m)
     ui.success(
-        f"{verb} {', '.join(regular_targets)} ({len(affected_tools)} tool(s)) -> {len(final_tools)}/{len(all_specs)} active tools ({saved_path})"
+        f"{verb} {', '.join(targets)} ({len(affected_tools)} tool(s)) -> {len(final_tools)}/{len(all_specs)} active tools ({saved_path})"
     )
     return 0
 
@@ -1037,16 +1023,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         b_name = getattr(args, "bridge_name", None)
         if action == "list" or not b_name:
             return render_bridges_panel(as_json=json_arg, explicit_config=cfg_arg)
-        from sled.tools.bridge import toggle_bridge
-
-        ok, msg = toggle_bridge(
-            b_name, enable=(action == "enable"), explicit_config=cfg_arg
+        return handle_enable_disable(
+            [b_name], enable=(action == "enable"), explicit_config=cfg_arg
         )
-        if ok:
-            ui.success(msg)
-            return 0
-        ui.error(msg)
-        return 1
     if cmd == "hub-json":
         return render_hub_json()
 

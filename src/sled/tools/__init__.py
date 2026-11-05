@@ -102,17 +102,41 @@ PACK_CATALOG: dict[str, dict[str, Any]] = {
         "icon": "🌐",
         "description": "Network interfaces, routing table, listening TCP/UDP ports, ICMP ping, and Tailscale",
     },
-    "icebergs": {
-        "title": "Icebergs & Frost Apps",
-        "icon": "🏔️",
-        "description": "Frost ecosystem apps bridged via native MCP stdio (Basecamp, Snowpack, Lantern, Barograph, Rime, Borealis, Goggles, Searchlight, Skald)",
-    },
     "dev": {
         "title": "Development & Languages",
         "icon": "🛠️",
         "description": "Code formatters, linters, static diagnostics, and language tooling from Frost",
     },
 }
+
+
+def get_all_pack_catalog(
+    explicit_config: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Return unified catalog of all packs: built-ins plus external manifest packs."""
+    catalog: dict[str, dict[str, Any]] = {k: dict(v) for k, v in PACK_CATALOG.items()}
+    for v in catalog.values():
+        v.setdefault("provider", "builtin")
+
+    try:
+        from sled.tools.bridge import discover_bridge_manifests
+
+        manifests = discover_bridge_manifests(explicit_config)
+        for name, m in manifests.items():
+            pack_id = m.get("pack", name)
+            if pack_id not in catalog:
+                title = name.capitalize()
+                catalog[pack_id] = {
+                    "title": title,
+                    "icon": "⚡",
+                    "description": m.get("description", f"Bridged pack for {title}"),
+                    "provider": "stdio",
+                    "binary": m.get("binary", name),
+                }
+    except Exception:
+        pass
+
+    return catalog
 
 
 def get_config_path(explicit_path: str | None = None) -> Path:
@@ -184,62 +208,106 @@ def get_all_tool_map() -> dict[str, ToolSpec]:
 def get_enabled_tools(explicit_config: str | None = None) -> list[str]:
     """Return ordered list of enabled atomic tool names.
 
-    Resolution priority in `sled.toml`:
-    1. `[store].enabled_tools` (explicit list of atomic tool names)
-    2. `[store].enabled_packs` (expands all tools in those packs)
-    3. Empty list if unconfigured (zero-trust: tools must be explicitly whitelisted)
-    Finally removes any tool listed in `[store].disabled_tools`.
-    Tools from active bridges in `[bridges]` are included when their bridge is activated.
+    Unified resolution in `sled.toml`:
+    1. Checks both `[tools].enabled` and legacy `[store].enabled_tools`
+    2. Checks both `[packs].enabled`, legacy `[store].enabled_packs`, and `[bridges].enabled`
+    3. Respects `disabled` lists in `[tools]`, `[packs]`, and `[store]`
+    4. Zero-trust: empty if no whitelist exists.
     """
     all_specs = _discover_all_tool_specs()
     known_names = {s.name for s in all_specs}
     data = load_sled_config(explicit_config)
-    store_sec = data.get("store", {}) if isinstance(data.get("store"), dict) else data
 
-    disabled_raw = store_sec.get("disabled_tools", [])
-    disabled_set = (
-        {str(t).strip().lower() for t in disabled_raw if str(t).strip()}
-        if isinstance(disabled_raw, list)
-        else set()
+    # Resolve tools section (unified [tools] or legacy [store])
+    tools_sec = data.get("tools", {}) if isinstance(data.get("tools"), dict) else {}
+    store_sec = data.get("store", {}) if isinstance(data.get("store"), dict) else {}
+    packs_sec = data.get("packs", {}) if isinstance(data.get("packs"), dict) else {}
+    bridges_sec = (
+        data.get("bridges", {}) if isinstance(data.get("bridges"), dict) else {}
     )
 
-    active_bridge_tools = {
-        s.name for s in all_specs if s.module == "bridge" and s.name not in disabled_set
+    disabled_raw: list[Any] = []
+    for sec, key in [
+        (tools_sec, "disabled"),
+        (store_sec, "disabled_tools"),
+    ]:
+        val = sec.get(key)
+        if isinstance(val, list):
+            disabled_raw.extend(val)
+
+    disabled_tools = {str(t).strip().lower() for t in disabled_raw if str(t).strip()}
+
+    disabled_packs_raw: list[Any] = []
+    for sec, key in [
+        (packs_sec, "disabled"),
+        (store_sec, "disabled_packs"),
+        (bridges_sec, "disabled"),
+    ]:
+        val = sec.get(key)
+        if isinstance(val, list):
+            disabled_packs_raw.extend(val)
+
+    disabled_packs = {
+        str(p).strip().lower() for p in disabled_packs_raw if str(p).strip()
     }
 
-    if isinstance(store_sec.get("enabled_tools"), list):
-        raw_tools = [
-            str(t).strip().lower() for t in store_sec["enabled_tools"] if str(t).strip()
-        ]
-        enabled_set = (
-            {t for t in raw_tools if t in known_names} | active_bridge_tools
-        ) - disabled_set
-        return [s.name for s in all_specs if s.name in enabled_set]
+    # Enabled packs whitelist
+    enabled_packs_raw: list[Any] = []
+    for sec, key in [
+        (packs_sec, "enabled"),
+        (store_sec, "enabled_packs"),
+        (bridges_sec, "enabled"),
+    ]:
+        val = sec.get(key)
+        if isinstance(val, list):
+            enabled_packs_raw.extend(val)
 
-    if isinstance(store_sec.get("enabled_packs"), list):
-        raw_packs = {
-            str(p).strip().lower() for p in store_sec["enabled_packs"] if str(p).strip()
-        }
+    active_packs = {
+        str(p).strip().lower() for p in enabled_packs_raw if str(p).strip()
+    } - disabled_packs
+
+    # Explicit tools whitelist
+    enabled_tools_raw: list[Any] = []
+    has_explicit_tools = False
+    for sec, key in [
+        (tools_sec, "enabled"),
+        (store_sec, "enabled_tools"),
+    ]:
+        val = sec.get(key)
+        if isinstance(val, list):
+            has_explicit_tools = True
+            enabled_tools_raw.extend(val)
+
+    explicit_tools = {
+        str(t).strip().lower() for t in enabled_tools_raw if str(t).strip()
+    } - disabled_tools
+
+    if has_explicit_tools:
+        # Include explicitly whitelisted tools, PLUS all tools belonging to any active pack
         return [
             s.name
             for s in all_specs
-            if (s.pack in raw_packs or s.name in active_bridge_tools)
-            and s.name not in disabled_set
+            if (s.name in explicit_tools or s.pack in active_packs)
+            and s.name not in disabled_tools
         ]
 
-    return [
-        s.name
-        for s in all_specs
-        if s.name in active_bridge_tools and s.name not in disabled_set
-    ]
+    if active_packs:
+        return [
+            s.name
+            for s in all_specs
+            if s.pack in active_packs and s.name not in disabled_tools
+        ]
+
+    return []
 
 
 def get_enabled_packs(explicit_config: str | None = None) -> list[str]:
     """Return list of pack IDs that currently have at least one enabled tool."""
     enabled_tools = set(get_enabled_tools(explicit_config))
     all_specs = _discover_all_tool_specs()
+    catalog = get_all_pack_catalog(explicit_config)
     active_packs: list[str] = []
-    for pack_id in PACK_CATALOG:
+    for pack_id in catalog:
         pack_tools = [s.name for s in all_specs if s.pack == pack_id]
         if any(t in enabled_tools for t in pack_tools):
             active_packs.append(pack_id)
@@ -265,11 +333,12 @@ def _format_toml_value(val: Any) -> str:
 def save_enabled_tools(
     enabled_tools: Sequence[str], explicit_config: str | None = None
 ) -> Path:
-    """Persist the exact list of enabled atomic tools (and derived pack list) to `sled.toml`."""
+    """Persist the exact list of enabled atomic tools and packs to `sled.toml`."""
     cfg_path = get_config_path(explicit_config)
     existing = load_sled_config(explicit_config)
     all_specs = _discover_all_tool_specs()
     known_names = {s.name for s in all_specs}
+    catalog = get_all_pack_catalog(explicit_config)
 
     chosen_set = {
         str(t).strip().lower()
@@ -279,38 +348,33 @@ def save_enabled_tools(
     ordered_tools = [s.name for s in all_specs if s.name in chosen_set]
 
     active_packs: list[str] = []
-    for pack_id in PACK_CATALOG:
+    for pack_id in catalog:
         if any(s.name in chosen_set for s in all_specs if s.pack == pack_id):
             active_packs.append(pack_id)
 
-    store_sec = (
-        dict(existing.get("store", {}))
-        if isinstance(existing.get("store"), dict)
-        else {}
-    )
-    store_sec["enabled_packs"] = active_packs
-    store_sec["enabled_tools"] = ordered_tools
-    store_sec.pop("disabled_tools", None)
-    existing["store"] = store_sec
+    # Clean legacy [store] or preserve [general]
+    existing.pop("store", None)
+    existing.pop("bridges", None)
+
+    existing["packs"] = {"enabled": active_packs}
+    existing["tools"] = {"enabled": ordered_tools}
 
     lines: list[str] = [
-        "# Sled MCP Store & Server Bridge Configuration",
-        "# Managed via `sled store` (Pack & Tool modes), `sled enable/disable`, or Home Manager",
+        "# Sled MCP Unified Pack & Tool Configuration",
+        "# Managed via `sled store`, `sled enable/disable`, or Home Manager",
         "",
-        "[store]",
-        "enabled_packs = [",
+        "[packs]",
+        "enabled = [",
     ]
     for pack_id in active_packs:
         lines.append(f'  "{pack_id}",')
     lines.append("]")
-    lines.append("enabled_tools = [")
+    lines.append("")
+    lines.append("[tools]")
+    lines.append("enabled = [")
     for tool_name in ordered_tools:
         lines.append(f'  "{tool_name}",')
     lines.append("]")
-
-    for k, v in store_sec.items():
-        if k not in ("enabled_packs", "enabled_tools"):
-            lines.append(f"{k} = {_format_toml_value(v)}")
 
     general_sec = existing.get("general")
     if isinstance(general_sec, dict) and general_sec:
@@ -320,7 +384,7 @@ def save_enabled_tools(
             lines.append(f"{k} = {_format_toml_value(v)}")
 
     for sec_name, sec_val in existing.items():
-        if sec_name in ("store", "general"):
+        if sec_name in ("packs", "tools", "general"):
             continue
         if isinstance(sec_val, dict) and sec_val:
             lines.append("")
@@ -347,10 +411,11 @@ def save_enabled_packs(
     enabled_packs: Sequence[str], explicit_config: str | None = None
 ) -> Path:
     """Enable all atomic tools belonging to `enabled_packs` and persist to `sled.toml`."""
+    catalog = get_all_pack_catalog(explicit_config)
     pack_set = {
         str(p).strip().lower()
         for p in enabled_packs
-        if str(p).strip().lower() in PACK_CATALOG
+        if str(p).strip().lower() in catalog
     }
     all_specs = _discover_all_tool_specs()
     tools_in_packs = [s.name for s in all_specs if s.pack in pack_set]
@@ -374,13 +439,14 @@ def list_pack_specs(
     """Return all store packs along with `(PackSpec, enabled_tool_count, total_tool_count)`."""
     enabled_tools = set(get_enabled_tools(explicit_config))
     all_tools = _discover_all_tool_specs()
+    catalog = get_all_pack_catalog(explicit_config)
 
-    tools_by_pack: dict[str, list[ToolSpec]] = {k: [] for k in PACK_CATALOG}
+    tools_by_pack: dict[str, list[ToolSpec]] = {k: [] for k in catalog}
     for t in all_tools:
         tools_by_pack.setdefault(t.pack, []).append(t)
 
     result: list[tuple[PackSpec, int, int]] = []
-    for pack_id, meta in PACK_CATALOG.items():
+    for pack_id, meta in catalog.items():
         p_tools = tools_by_pack.get(pack_id, [])
         en_count = sum(1 for t in p_tools if t.name in enabled_tools)
         spec = PackSpec(
@@ -400,6 +466,7 @@ def search_catalog(query: str, explicit_config: str | None = None) -> dict[str, 
     q = query.strip().lower()
     tokens = [tok for tok in q.split() if tok]
     enabled_tools = set(get_enabled_tools(explicit_config))
+    catalog = get_all_pack_catalog(explicit_config)
 
     matched_packs: list[dict[str, Any]] = []
     for spec, en_count, total_count in list_pack_specs(explicit_config):
@@ -422,7 +489,7 @@ def search_catalog(query: str, explicit_config: str | None = None) -> dict[str, 
 
     scored_tools: list[tuple[int, ToolSpec]] = []
     for t in _discover_all_tool_specs():
-        pack_meta = PACK_CATALOG.get(t.pack, {})
+        pack_meta = catalog.get(t.pack, {})
         pack_title = str(pack_meta.get("title", ""))
         params_str = " ".join(t.param_names)
         haystack = (
