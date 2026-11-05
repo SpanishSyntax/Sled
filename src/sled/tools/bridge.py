@@ -119,15 +119,13 @@ def discover_bridge_manifests(
             except Exception as exc:
                 logger.warning("Failed to parse bridge descriptor %s: %s", f, exc)
 
-    # Also check inline custom bridge definitions in `sled.toml` ([bridges.custom.<name>])
+    # Also check inline custom pack definitions in `sled.toml` ([packs.custom.<name>])
     try:
         from sled.tools import load_sled_config
 
         cfg = load_sled_config(explicit_config)
-        bridges_sec = (
-            cfg.get("bridges", {}) if isinstance(cfg.get("bridges"), dict) else {}
-        )
-        custom = bridges_sec.get("custom", {})
+        packs_sec = cfg.get("packs", {}) if isinstance(cfg.get("packs"), dict) else {}
+        custom = packs_sec.get("custom", {})
         if isinstance(custom, dict):
             for b_name, b_info in custom.items():
                 if not isinstance(b_info, dict):
@@ -146,10 +144,10 @@ def discover_bridge_manifests(
                             "pack": str(b_info.get("pack", clean_n)),
                             "description": str(
                                 b_info.get(
-                                    "description", f"Custom SSE bridge for {b_name}"
+                                    "description", f"Custom SSE pack for {b_name}"
                                 )
                             ),
-                            "manifest_path": "sled.toml [bridges.custom]",
+                            "manifest_path": "sled.toml [packs.custom]",
                         }
                     continue
 
@@ -163,10 +161,10 @@ def discover_bridge_manifests(
                         "pack": str(b_info.get("pack", clean_n)),
                         "description": str(
                             b_info.get(
-                                "description", f"Custom inline bridge for {b_name}"
+                                "description", f"Custom inline pack for {b_name}"
                             )
                         ),
-                        "manifest_path": "sled.toml [bridges.custom]",
+                        "manifest_path": "sled.toml [packs.custom]",
                     }
     except Exception:
         pass
@@ -452,25 +450,17 @@ def _make_sse_handler(
 
 
 def get_configured_bridges(explicit_config: str | None = None) -> list[dict[str, Any]]:
-    """Resolve active external bridges/packs from `[packs].enabled` or legacy `[bridges].enabled`."""
+    """Resolve active external bridges/packs from `[packs].enabled`."""
     try:
         from sled.tools import load_sled_config
 
         cfg = load_sled_config(explicit_config)
         packs_sec = cfg.get("packs", {}) if isinstance(cfg.get("packs"), dict) else {}
-        bridges_sec = (
-            cfg.get("bridges", {}) if isinstance(cfg.get("bridges"), dict) else {}
-        )
     except Exception:
         packs_sec = {}
-        bridges_sec = {}
 
-    enabled_whitelist = set(packs_sec.get("enabled", [])) | set(
-        bridges_sec.get("enabled", [])
-    )
-    disabled_blacklist = set(packs_sec.get("disabled", [])) | set(
-        bridges_sec.get("disabled", [])
-    )
+    enabled_whitelist = set(packs_sec.get("enabled", []))
+    disabled_blacklist = set(packs_sec.get("disabled", []))
 
     if not enabled_whitelist:
         return []
@@ -496,19 +486,11 @@ def list_bridge_statuses(explicit_config: str | None = None) -> list[dict[str, A
 
         cfg = load_sled_config(explicit_config)
         packs_sec = cfg.get("packs", {}) if isinstance(cfg.get("packs"), dict) else {}
-        bridges_sec = (
-            cfg.get("bridges", {}) if isinstance(cfg.get("bridges"), dict) else {}
-        )
     except Exception:
         packs_sec = {}
-        bridges_sec = {}
 
-    enabled_whitelist = set(packs_sec.get("enabled", [])) | set(
-        bridges_sec.get("enabled", [])
-    )
-    disabled_blacklist = set(packs_sec.get("disabled", [])) | set(
-        bridges_sec.get("disabled", [])
-    )
+    enabled_whitelist = set(packs_sec.get("enabled", []))
+    disabled_blacklist = set(packs_sec.get("disabled", []))
 
     manifests = discover_bridge_manifests(explicit_config)
     records: list[dict[str, Any]] = []

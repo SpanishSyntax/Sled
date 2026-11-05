@@ -192,9 +192,8 @@
           mergedSettings =
             lib.recursiveUpdate
             (lib.optionalAttrs (cfg.packs != null || cfg.tools != null) {
-              store =
-                (lib.optionalAttrs (cfg.packs != null) { enabled_packs = cfg.packs; })
-                // (lib.optionalAttrs (cfg.tools != null) { enabled_tools = cfg.tools; });
+              packs = lib.optionalAttrs (cfg.packs != null) { enabled = cfg.packs; };
+              tools = lib.optionalAttrs (cfg.tools != null) { enabled = cfg.tools; };
             })
             cfg.settings;
         in {

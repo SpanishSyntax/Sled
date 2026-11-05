@@ -208,82 +208,45 @@ def get_all_tool_map() -> dict[str, ToolSpec]:
 def get_enabled_tools(explicit_config: str | None = None) -> list[str]:
     """Return ordered list of enabled atomic tool names.
 
-    Unified resolution in `sled.toml`:
-    1. Checks both `[tools].enabled` and legacy `[store].enabled_tools`
-    2. Checks both `[packs].enabled`, legacy `[store].enabled_packs`, and `[bridges].enabled`
-    3. Respects `disabled` lists in `[tools]`, `[packs]`, and `[store]`
-    4. Zero-trust: empty if no whitelist exists.
+    Zero-Trust Resolution in `sled.toml`:
+    1. Reads `[tools].enabled` (atomic tool whitelist)
+    2. Reads `[packs].enabled` (pack whitelist expanding to all tools in those packs)
+    3. Respects `disabled` lists in `[tools]` and `[packs]`
+    4. Returns empty list if unconfigured (zero-trust: no tools exposed until whitelisted).
     """
     all_specs = _discover_all_tool_specs()
     known_names = {s.name for s in all_specs}
     data = load_sled_config(explicit_config)
 
-    # Resolve tools section (unified [tools] or legacy [store])
     tools_sec = data.get("tools", {}) if isinstance(data.get("tools"), dict) else {}
-    store_sec = data.get("store", {}) if isinstance(data.get("store"), dict) else {}
     packs_sec = data.get("packs", {}) if isinstance(data.get("packs"), dict) else {}
-    bridges_sec = (
-        data.get("bridges", {}) if isinstance(data.get("bridges"), dict) else {}
+
+    disabled_tools_raw = tools_sec.get("disabled", [])
+    disabled_tools = (
+        {str(t).strip().lower() for t in disabled_tools_raw if str(t).strip()}
+        if isinstance(disabled_tools_raw, list)
+        else set()
     )
 
-    disabled_raw: list[Any] = []
-    for sec, key in [
-        (tools_sec, "disabled"),
-        (store_sec, "disabled_tools"),
-    ]:
-        val = sec.get(key)
-        if isinstance(val, list):
-            disabled_raw.extend(val)
+    disabled_packs_raw = packs_sec.get("disabled", [])
+    disabled_packs = (
+        {str(p).strip().lower() for p in disabled_packs_raw if str(p).strip()}
+        if isinstance(disabled_packs_raw, list)
+        else set()
+    )
 
-    disabled_tools = {str(t).strip().lower() for t in disabled_raw if str(t).strip()}
+    enabled_packs_raw = packs_sec.get("enabled", [])
+    active_packs = (
+        {str(p).strip().lower() for p in enabled_packs_raw if str(p).strip()}
+        if isinstance(enabled_packs_raw, list)
+        else set()
+    ) - disabled_packs
 
-    disabled_packs_raw: list[Any] = []
-    for sec, key in [
-        (packs_sec, "disabled"),
-        (store_sec, "disabled_packs"),
-        (bridges_sec, "disabled"),
-    ]:
-        val = sec.get(key)
-        if isinstance(val, list):
-            disabled_packs_raw.extend(val)
-
-    disabled_packs = {
-        str(p).strip().lower() for p in disabled_packs_raw if str(p).strip()
-    }
-
-    # Enabled packs whitelist
-    enabled_packs_raw: list[Any] = []
-    for sec, key in [
-        (packs_sec, "enabled"),
-        (store_sec, "enabled_packs"),
-        (bridges_sec, "enabled"),
-    ]:
-        val = sec.get(key)
-        if isinstance(val, list):
-            enabled_packs_raw.extend(val)
-
-    active_packs = {
-        str(p).strip().lower() for p in enabled_packs_raw if str(p).strip()
-    } - disabled_packs
-
-    # Explicit tools whitelist
-    enabled_tools_raw: list[Any] = []
-    has_explicit_tools = False
-    for sec, key in [
-        (tools_sec, "enabled"),
-        (store_sec, "enabled_tools"),
-    ]:
-        val = sec.get(key)
-        if isinstance(val, list):
-            has_explicit_tools = True
-            enabled_tools_raw.extend(val)
-
-    explicit_tools = {
-        str(t).strip().lower() for t in enabled_tools_raw if str(t).strip()
-    } - disabled_tools
-
-    if has_explicit_tools:
-        # Include explicitly whitelisted tools, PLUS all tools belonging to any active pack
+    enabled_tools_raw = tools_sec.get("enabled")
+    if isinstance(enabled_tools_raw, list):
+        explicit_tools = {
+            str(t).strip().lower() for t in enabled_tools_raw if str(t).strip()
+        } - disabled_tools
         return [
             s.name
             for s in all_specs
