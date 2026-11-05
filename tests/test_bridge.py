@@ -3,8 +3,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 from sled.tools.bridge import (
-    KNOWN_BRIDGES,
     _make_bridge_handler,
+    discover_bridge_manifests,
     discover_bridged_tools,
     get_configured_bridges,
     list_bridge_statuses,
@@ -62,36 +62,63 @@ def test_zero_trust_default_is_empty():
         assert discovered == []
 
 
-def test_toggle_bridge_activation():
+def test_manifest_discovery_and_toggle(monkeypatch):
     with tempfile.TemporaryDirectory() as tmpdir:
-        fake_cfg = Path(tmpdir) / "sled.toml"
+        work_dir = Path(tmpdir)
+        bridges_dir = work_dir / "bridges"
+        bridges_dir.mkdir()
+
+        desc_file = bridges_dir / "my_app.toml"
+        desc_file.write_text(
+            'name = "my_app"\ncommand = ["my_app_bin", "mcp"]\ndescription = "Custom app"\n',
+            encoding="utf-8",
+        )
+
+        fake_cfg = work_dir / "sled.toml"
         fake_cfg.write_text("[store]\nenabled_packs = ['fs']\n", encoding="utf-8")
 
-        # Enable skald bridge
-        ok, msg = toggle_bridge("skald", enable=True, explicit_config=str(fake_cfg))
+        # Monkeypatch search paths to point to temp bridges directory
+        monkeypatch.setattr(
+            "sled.tools.bridge.get_bridge_search_paths",
+            lambda: [bridges_dir],
+        )
+
+        manifests = discover_bridge_manifests(str(fake_cfg))
+        assert "my_app" in manifests
+        assert manifests["my_app"]["binary"] == "my_app_bin"
+        assert manifests["my_app"]["cmd"] == ["my_app_bin", "mcp"]
+
+        # Initially inactive (Zero-Trust)
+        configured = get_configured_bridges(str(fake_cfg))
+        assert len(configured) == 0
+
+        # Activate via toggle_bridge
+        ok, msg = toggle_bridge("my_app", enable=True, explicit_config=str(fake_cfg))
         assert ok is True
-        assert "Activated bridge `skald`" in msg
+        assert "Activated bridge `my_app`" in msg
 
-        # Verify it is now in configured bridges
-        bridges = get_configured_bridges(str(fake_cfg))
-        assert len(bridges) == 1
-        assert bridges[0]["name"] == "skald"
+        configured_after = get_configured_bridges(str(fake_cfg))
+        assert len(configured_after) == 1
+        assert configured_after[0]["name"] == "my_app"
 
-        # Disable skald bridge
-        ok, msg = toggle_bridge("skald", enable=False, explicit_config=str(fake_cfg))
+        # Deactivate
+        ok, msg = toggle_bridge("my_app", enable=False, explicit_config=str(fake_cfg))
         assert ok is True
-        assert "Deactivated bridge `skald`" in msg
-
-        bridges = get_configured_bridges(str(fake_cfg))
-        assert len(bridges) == 0
+        assert "Deactivated bridge `my_app`" in msg
+        assert len(get_configured_bridges(str(fake_cfg))) == 0
 
 
 def test_skald_bridge_explicit_live():
     if not which_bin("skald"):
         return
 
-    # Pass skald explicitly
-    tools = discover_bridged_tools(bridges=[KNOWN_BRIDGES["skald"]])
+    bridge_def = {
+        "name": "skald",
+        "binary": "skald",
+        "cmd": ["skald", "mcp"],
+        "pack": "icebergs",
+    }
+    tools = discover_bridged_tools(bridges=[bridge_def])
     tool_names = [t.name for t in tools]
 
     assert "skald_narrate" in tool_names
