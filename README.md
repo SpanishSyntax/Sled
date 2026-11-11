@@ -2,13 +2,20 @@
   <img src="assets/banner.png" alt="Alaskan dog sled team and driver hauling cargo across the arctic snow in 1914" width="100%" />
 </p>
 
-# 🛷 Sled
+# Sled 🛷
 
-> **NixOS Atomic Model Context Protocol (MCP) Store & Server Bridge for the SpanishSyntax & Frost Ecosystem**
+NixOS Atomic Model Context Protocol (MCP) Store & Server Bridge for the SpanishSyntax & Frost Ecosystem.
 
-`Sled` is a pure, hermetic Model Context Protocol (MCP) Store and Server Bridge built for the **Frost** NixOS ecosystem alongside [`Basecamp`](https://github.com/SpanishSyntax/Basecamp), [`Rime`](https://github.com/SpanishSyntax/Rime), [`Snowpack`](https://github.com/SpanishSyntax/Snowpack), [`Borealis`](https://github.com/SpanishSyntax/Borealis), [`Barograph`](https://github.com/SpanishSyntax/Barograph), [`Goggles`](https://github.com/SpanishSyntax/Goggles), `Searchlight`, and `Tundra`.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Built with Nix](https://img.shields.io/badge/Built_with-Nix-5277C3.svg?logo=nixos&logoColor=white)](flake.nix)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
 
-Instead of monolithic macro-tools or abstract bundles, **Sled atomizes every capability into focused Unix, Git, System, Docker, Systemd, NixOS, and Network primitives** (`ls`, `cat`, `grep`, `git_status`, `ps`, `df`, `docker_ps`, `journalctl`, `nix_search`, etc.).
+`Sled` is a Model Context Protocol (MCP) Store and Server Bridge built for the **Frost** NixOS ecosystem alongside `Basecamp`, `Rime`, `Snowpack`, `Borealis`, `Barograph`, and `Goggles`.
+
+Instead of monolithic macro-tools or high-friction shell abstractions, **Sled atomizes host capabilities into focused Unix, Git, System, Docker, Systemd, NixOS, and Network primitives** (`ls`, `cat`, `grep`, `git_status`, `ps`, `df`, `docker_ps`, `journalctl`, `nix_search`).
+
+> [!TIP]
+> **Documentation Site:** Complete API references, parameter schemas, and client guides are available at the **[Sled Documentation Site](https://spanishsyntax.github.io/Sled)**.
 
 ---
 
@@ -24,7 +31,7 @@ You cannot traverse polar glaciers in heavy wheeled trucks; only a flexible, low
 
 ---
 
-## 🏪 Dual-Mode Store & Local Tool Search
+## Dual-Mode Store & Local Tool Search
 
 Sled operates at two synchronized granularities:
 1. **Pack Mode** (`sled store` / `sled packs`): Group-level toggling with live preview of member tools right in the pack description.
@@ -35,7 +42,7 @@ Press **`Tab`** in `sled store` at any time to switch instantly between **Pack M
 
 ---
 
-## 📦 Capability Packs & 72 Atomic Tools
+## Capability Packs & Atomic Tools
 
 | Pack | Icon | Atomic Tools | Description |
 | :--- | :---: | :--- | :--- |
@@ -51,7 +58,7 @@ Press **`Tab`** in `sled store` at any time to switch instantly between **Pack M
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # Open interactive dashboard
@@ -87,7 +94,7 @@ sled serve
 
 ---
 
-## ❄️ Frost Integration (`home/applications/icebergs/sled.nix`)
+## Frost Integration
 
 By default in **Frost**, `sled` uses `mkOutOfStoreSymlink` pointing `~/.config/sled/sled.toml` -> `~/Frost/home/configs/sled/sled.toml` so changes made via `sled store` or `sled enable/disable` take effect immediately without a NixOS rebuild while staying tracked in Git.
 
@@ -95,14 +102,14 @@ By default in **Frost**, `sled` uses `mkOutOfStoreSymlink` pointing `~/.config/s
 frost.home.apps.icebergs.sled = {
   enable = true;
 
-  # Declarative packs or atomic tools (optional):
-  # packs = [ "fs" "git" "system" "docker" "systemd" "nixos" "network" ];
+  # Declarative packs or atomic tools:
+  packs = [ "fs" "git" "system" "docker" "systemd" "nixos" "network" "dev" ];
   # tools = [ "ls" "cat" "grep" "git_status" "docker_ps" "journalctl" ];
 };
 ```
 
 ---
 
-## 📜 License
+## License
 
-MIT © SpanishSyntax
+MIT © [SpanishSyntax](https://github.com/SpanishSyntax)
