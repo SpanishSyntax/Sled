@@ -15,30 +15,12 @@ Sled replaces both paradigms with **atomic, hermetic MCP primitives**:
 - Commands execute through Python's `subprocess.run` with discrete argument vectors, bypassing shell interpolation entirely.
 - Large output buffers are automatically truncated and summarized to conserve context tokens.
 
-```
-┌────────────────────────────────────────────────────────┐
-│                   MCP Client Engine                    │
-│             (Antigravity / OpenCode / Claude)          │
-└───────────────────────────┬────────────────────────────┘
-                            │ JSON-RPC 2.0 (stdio)
-                            ▼
-┌────────────────────────────────────────────────────────┐
-│                       Sled Core                        │
-│ ┌──────────────────────┐      ┌──────────────────────┐ │
-│ │  Zero-Trust Filter   │◄────►│   sled.toml Config   │ │
-│ └──────────┬───────────┘      └──────────────────────┘ │
-│            │ Whitelisted tools only                    │
-│            ▼                                           │
-│ ┌────────────────────────────────────────────────────┐ │
-│ │             Atomic Capability Registry             │ │
-│ │  [fs] [git] [system] [docker] [systemd] [nixos]    │ │
-│ └──────────────────────┬─────────────────────────────┘ │
-└────────────────────────┼───────────────────────────────┘
-                         │ Direct POSIX sub-calls
-                         ▼
-┌────────────────────────────────────────────────────────┐
-│           Host OS / Kernel / Nix Store Layers          │
-└────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Client["MCP Client Engine (Antigravity / OpenCode / Claude)"] -->|"JSON-RPC 2.0 (stdio)"| Filter["Zero-Trust Filter"]
+    Config["sled.toml Config"] <--> Filter
+    Filter -->|"Whitelisted tools only"| Registry["Atomic Capability Registry (fs, git, system, docker, systemd, nixos)"]
+    Registry -->|"Direct POSIX sub-calls"| Host["Host OS / Kernel / Nix Store Layers"]
 ```
 
 ---

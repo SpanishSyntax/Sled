@@ -46,15 +46,15 @@ Press **`Tab`** in `sled store` at any time to switch instantly between **Pack M
 
 | Pack | Icon | Atomic Tools | Description |
 | :--- | :---: | :--- | :--- |
-| **`fs`** | 📁 | `ls`, `cat`, `head`, `tail`, `find`, `grep`, `stat`, `tree`, `jq`, `checksum`, `detect_type` | Atomic filesystem inspection, ripgrep/fd-accelerated search, jq filters, Nix SRI hashes, and Magika file typing |
-| **`git`** | 🌿 | `git`, `git_status`, `git_log`, `git_diff`, `git_branch`, `git_show`, `git_stash`, `git_remote`, `git_blame`, `gh_pr`, `gh_issue` | Non-interactive Git execution, status, history, diffs, branches, commits, stashes, divergence, blame, and GitHub CLI PRs/issues |
-| **`system`** | 🖥️ | `uname`, `uptime`, `ps`, `df`, `free`, `which`, `lsblk`, `zoxide_query` | Host OS/kernel info, uptime, process table, disk usage, memory, PATH binaries, block devices, and Zoxide path queries |
-| **`docker`** | 🐳 | `docker_ps`, `docker_logs`, `docker_inspect`, `docker_stats`, `docker_images`, `docker_volumes`, `docker_networks`, `docker_action`, `docker_compose` | Containers, logs, stats, images, volumes, networks, lifecycle, and Compose |
-| **`systemd`** | 🔧 | `systemctl_list`, `systemctl_status`, `journalctl`, `systemctl_action` | System & user service units, properties, lifecycle actions, and journal logs |
-| **`nixos`** | ❄️ | `nixos_generations`, `nix_flake_metadata`, `nix_flake_show`, `nix_search`, `nix_eval`, `nix_store_info`, `nix_flake_check`, `nix_diff_generations`, `nix_build`, `nix_run`, `nix_develop` | System/HM generations, flake inspection, nixpkgs search, evaluation, store size, flake check, generation diffs, package builds, app runs, and hermetic DevShell execution |
-| **`network`** | 🌐 | `ip_addr`, `ip_route`, `ss_ports`, `ping`, `tailscale_status`, `dns_lookup`, `http_probe` | IP interfaces, routing table, listening ports (`ss`), ICMP ping, Tailscale mesh, DNS queries (`dig`), and HTTP latency probes |
-| **`icebergs`** | 🏔️ | Bridged dynamically via `sled bridge` | Decentralized micro-MCP servers hosted inside Frost ecosystem applications (`basecamp`, `snowpack`, `lantern`, `barograph`, `rime`, `borealis`, `goggles`, `searchlight`, `skald`), reverse-proxied over zero-trust stdio bridges |
-| **`dev`** | 🛠️ | `code_format`, `code_lint`, `code_check`, `dev_env` | Polyglot formatters (ruff, rustfmt, alejandra, shfmt), linters (shellcheck, statix, taplo), static checks (ty, cargo), and Frost toolchain diagnostics |
+| `fs` | 📁 | `ls`, `cat`, `head`, `tail`, `find`, `grep`, `stat`, `tree`, `jq`, `checksum`, `detect_type` | Atomic filesystem inspection, ripgrep/fd-accelerated search, jq filters, Nix SRI hashes, and Magika file typing |
+| `git` | 🌿 | `git`, `git_status`, `git_log`, `git_diff`, `git_branch`, `git_show`, `git_stash`, `git_remote`, `git_blame`, `gh_pr`, `gh_issue` | Non-interactive Git execution, status, history, diffs, branches, commits, stashes, divergence, blame, and GitHub CLI PRs/issues |
+| `system` | 🖥️ | `uname`, `uptime`, `ps`, `df`, `free`, `which`, `lsblk`, `zoxide_query` | Host OS/kernel info, uptime, process table, disk usage, memory, PATH binaries, block devices, and Zoxide path queries |
+| `docker` | 🐳 | `docker_ps`, `docker_logs`, `docker_inspect`, `docker_stats`, `docker_images`, `docker_volumes`, `docker_networks`, `docker_action`, `docker_compose` | Containers, logs, stats, images, volumes, networks, lifecycle, and Compose |
+| `systemd` | 🔧 | `systemctl_list`, `systemctl_status`, `journalctl`, `systemctl_action` | System & user service units, properties, lifecycle actions, and journal logs |
+| `nixos` | ❄️ | `nixos_generations`, `nix_flake_metadata`, `nix_flake_show`, `nix_search`, `nix_eval`, `nix_store_info`, `nix_flake_check`, `nix_diff_generations`, `nix_build`, `nix_run`, `nix_develop` | System/HM generations, flake inspection, nixpkgs search, evaluation, store size, flake check, generation diffs, package builds, app runs, and hermetic DevShell execution |
+| `network` | 🌐 | `ip_addr`, `ip_route`, `ss_ports`, `ping`, `tailscale_status`, `dns_lookup`, `http_probe` | IP interfaces, routing table, listening ports (`ss`), ICMP ping, Tailscale mesh, DNS queries (`dig`), and HTTP latency probes |
+| `icebergs` | 🏔️ | Bridged dynamically via `sled bridge` | Decentralized micro-MCP servers hosted inside Frost ecosystem applications (`basecamp`, `snowpack`, `lantern`, `barograph`, `rime`, `borealis`, `goggles`, `searchlight`, `skald`), reverse-proxied over zero-trust stdio bridges |
+| `dev` | 🛠️ | `code_format`, `code_lint`, `code_check`, `dev_env` | Polyglot formatters (ruff, rustfmt, alejandra, shfmt), linters (shellcheck, statix, taplo), static checks (ty, cargo), and Frost toolchain diagnostics |
 
 ---
 
@@ -96,11 +96,12 @@ sled serve
 
 ## Frost Integration
 
-By default in **Frost**, `sled` uses `mkOutOfStoreSymlink` pointing `~/.config/sled/sled.toml` -> `~/Frost/home/configs/sled/sled.toml` so changes made via `sled store` or `sled enable/disable` take effect immediately without a NixOS rebuild while staying tracked in Git.
+By default in **Frost**, `sled` uses `mkSource` pointing `~/.config/sled/sled.toml` to `<configsPath>/sled/sled.toml` (when `configsPath` is set) so changes made via `sled store` or `sled enable/disable` take effect immediately without a NixOS rebuild while staying tracked in Git.
 
 ```nix
-frost.home.apps.icebergs.sled = {
+frost.home.apps.ai.sled = {
   enable = true;
+  manageConfig = true;
 
   # Declarative packs or atomic tools:
   packs = [ "fs" "git" "system" "docker" "systemd" "nixos" "network" "dev" ];

@@ -152,12 +152,13 @@ sled hub-json
 In the **Frost** ecosystem, Sled is managed declaratively via Home Manager:
 
 ```nix
-# home/applications/icebergs/sled.nix
+# home/applications/ai/sled.nix
 { config, lib, pkgs, ... }:
 
 {
-  frost.home.apps.icebergs.sled = {
+  frost.home.apps.ai.sled = {
     enable = true;
+    manageConfig = true;
 
     # Declarative pack enablement
     packs = [
