@@ -147,22 +147,22 @@
         errorText: 'Error',
         successText: 'Copied'
       },
-      markdown: {
-        renderer: {
-          code: function(code, lang) {
-            if (lang === 'mermaid') {
-              return '<div class="mermaid">' + code + '</div>';
-            }
-            return this.origin.code.apply(this, arguments);
-          }
-        }
-      },
       plugins: [
         function(hook) {
           hook.doneEach(function() {
-            if (window.mermaid) {
-              mermaid.run({ querySelector: '.mermaid' });
-            }
+            var blocks = document.querySelectorAll('pre[data-lang="mermaid"], code.lang-mermaid');
+            if (!blocks.length || !window.mermaid) return;
+            blocks.forEach(function(el) {
+              var pre = el.tagName === 'PRE' ? el : el.closest('pre');
+              if (!pre || pre.getAttribute('data-mermaid-done')) return;
+              pre.setAttribute('data-mermaid-done', 'true');
+              var codeEl = el.tagName === 'CODE' ? el : (pre.querySelector('code') || pre);
+              var div = document.createElement('div');
+              div.className = 'mermaid';
+              div.textContent = codeEl.textContent || '';
+              pre.replaceWith(div);
+            });
+            mermaid.run({ querySelector: '.mermaid' });
           });
         }
       ]
@@ -170,7 +170,7 @@
   </script>
   <script src="//cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
   <script>
-    mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+    mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
   </script>
   <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
   <script src="//cdn.jsdelivr.net/npm/docsify@4/lib/plugins/search.min.js"></script>
