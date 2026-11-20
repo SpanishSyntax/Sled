@@ -113,7 +113,7 @@ def nix_flake_metadata(flake_ref: str = ".") -> dict[str, Any]:
     """Inspects a Nix flake's metadata, revision, and locked inputs (`nix flake metadata --json`).
 
     Args:
-        flake_ref: Path or flake URI (e.g. `.`, `/home/usurper/Glacier`, `/home/usurper/Frost`).
+        flake_ref: Path or flake URI (e.g. `.`, `~/Frost`, `github:NixOS/nixpkgs`).
     """
     target = (
         str(Path(flake_ref).expanduser().resolve())
@@ -233,7 +233,7 @@ def nix_eval(
     """Evaluates a Nix flake installable attribute or inline Nix expression and returns JSON (`nix eval --json`).
 
     Args:
-        installable_or_expr: Flake installable (e.g. `/home/usurper/Glacier#nixosConfigurations.laptop.config.networking.hostName`) or Nix expression if `is_expr=True`.
+        installable_or_expr: Flake installable (e.g. `.#nixosConfigurations.workstation.config.networking.hostName`) or Nix expression if `is_expr=True`.
         is_expr: Treat `installable_or_expr` as a raw `--expr` string instead of a flake installable (default False).
         apply_fn: Optional Nix function to apply before serializing (e.g. `builtins.attrNames`).
     """
