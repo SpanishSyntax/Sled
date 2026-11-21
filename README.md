@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="assets/banner.png" alt="Alaskan dog sled team and driver hauling cargo across the arctic snow in 1914" width="100%" />
-</p>
+<img src="assets/banner.png" alt="Alaskan dog sled team and driver hauling cargo across the arctic snow in 1914" width="100%" />
 
 # Sled 🛷
 
